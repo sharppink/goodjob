@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile agents/state.py agents/graph.py agents/job_parser.py agents/rag_retriever.py agents/fit_analyzer.py agents/resume_writer.py agents/reviewer.py)",
+      "Bash(python -m py_compile rag/vectorstore.py rag/embeddings.py rag/profile_loader.py)",
+      "Bash(python -m py_compile llm/claude_client.py llm/local_llm.py llm/router.py)",
+      "Bash(python -m py_compile search/company_searcher.py search/image_parser.py search/job_scraper.py)",
+      "Bash(python -m py_compile finetune/data_collector.py finetune/train.py finetune/inference.py)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\compro\\\\Desktop\\\\pythonworkspace\\\\SKN_24\\\\ai_agent_with_langgraph\\\\goodjob\" -Recurse | Where-Object { !$_.PSIsContainer } | Select-Object FullName | Format-Table -AutoSize)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\compro\\\\Desktop\\\\pythonworkspace\\\\SKN_24\\\\ai_agent_with_langgraph\\\\goodjob\" -Recurse | Where-Object { !$_.PSIsContainer } | ForEach-Object { $_.FullName.Replace\\(\"C:\\\\Users\\\\compro\\\\Desktop\\\\pythonworkspace\\\\SKN_24\\\\ai_agent_with_langgraph\\\\goodjob\\\\\", \"\"\\) })",
+      "PowerShell(Get-PSDrive C | Select-Object Used, Free | ForEach-Object { \"C드라이브 사용: $\\([math]::Round\\($_.Used/1GB,1\\)\\)GB / 여유: $\\([math]::Round\\($_.Free/1GB,1\\)\\)GB\" })",
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(streamlit run *)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(Get-Process *)",
+      "WebSearch",
+      "WebFetch(domain:tiokorea.com)",
+      "WebFetch(domain:about.tiokorea.com)",
+      "WebFetch(domain:www.moket.kr)",
+      "PowerShell(cd \"C:\\\\Users\\\\compro\\\\Desktop\\\\pythonworkspace\\\\SKN_24\\\\ai_agent_with_langgraph\\\\goodjob\"; $env:PYTHONIOENCODING=\"utf-8\"; Start-Process python -ArgumentList \"test_recommender.py\" -NoNewWindow -Wait -RedirectStandardOutput \"test_out.txt\" -RedirectStandardError \"test_err.txt\"; Get-Content test_out.txt; Write-Host \"---STDERR---\"; Get-Content test_err.txt)",
+      "PowerShell(cd \"C:\\\\Users\\\\compro\\\\Desktop\\\\pythonworkspace\\\\SKN_24\\\\ai_agent_with_langgraph\\\\goodjob\"; $env:PYTHONIOENCODING=\"utf-8\"; $env:PYTHONUTF8=\"1\"; python test_recommender.py)",
+      "PowerShell(cd \"C:\\\\Users\\\\compro\\\\Desktop\\\\pythonworkspace\\\\SKN_24\\\\ai_agent_with_langgraph\\\\goodjob\"; python -W ignore test_recommender.py; echo \"exit: $LASTEXITCODE\")",
+      "PowerShell(python -c \"import chromadb; print\\(chromadb.__version__\\)\")",
+      "PowerShell(cd \"C:\\\\Users\\\\compro\\\\Desktop\\\\pythonworkspace\\\\SKN_24\\\\ai_agent_with_langgraph\\\\goodjob\"; python test_recommender.py; echo \"exit: $LASTEXITCODE\")",
+      "PowerShell(cd \"C:\\\\Users\\\\compro\\\\Desktop\\\\pythonworkspace\\\\SKN_24\\\\ai_agent_with_langgraph\\\\goodjob\"; $bytes = [System.IO.File]::ReadAllBytes\\(\"test_recommender.py\"\\); Write-Host \"First 4 bytes \\(hex\\):\" \\($bytes[0..3] | ForEach-Object { '{0:X2}' -f $_ } | Join-String -Separator ' '\\); Write-Host \"Total bytes: $\\($bytes.Length\\)\")",
+      "PowerShell(cd \"C:\\\\Users\\\\compro\\\\Desktop\\\\pythonworkspace\\\\SKN_24\\\\ai_agent_with_langgraph\\\\goodjob\"; $bytes = [System.IO.File]::ReadAllBytes\\(\"test_recommender.py\"\\); $hex = \\($bytes[0..3] | ForEach-Object { '{0:X2}' -f $_ }\\) -join ' '; Write-Host \"First 4 bytes: $hex\")",
+      "Bash(gh auth *)"
+    ]
+  }
+}

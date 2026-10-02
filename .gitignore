@@ -1,0 +1,102 @@
+# ============================================================
+# GoodJob .gitignore
+# ============================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+.eggs/
+
+# --- Virtual Environments ---
+.venv/
+venv/
+ENV/
+env/
+.env
+env.bak/
+venv.bak/
+
+# --- Environment Variables (NEVER commit) ---
+.env
+.env.local
+.env.*.local
+
+# --- Vector Store / DB ---
+chroma_db/
+*.db
+*.sqlite
+
+# --- Model Cache ---
+model_cache/
+*.bin
+*.safetensors
+*.gguf
+*.pt
+*.pth
+
+# --- Finetune Artifacts ---
+finetune/dataset/
+finetune/outputs/
+finetune/checkpoints/
+runs/
+
+# --- MLflow ---
+mlflow_runs/
+
+# --- Redis ---
+redis_data/
+
+# --- Docker ---
+.docker/
+
+# --- Logs ---
+*.log
+logs/
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb
+
+# --- Uploads / Temp ---
+uploads/
+tmp/
+temp/
+*.tmp
+
+# --- Playwright ---
+playwright-report/
+test-results/
+
+# --- Misc ---
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Debug / temp test output ---
+debug_test*.py
+test_out.txt
+test_err.txt
+test_output.txt
+C:/

@@ -1,0 +1,57 @@
+version: "3.9"
+
+# ============================================================
+# GoodJob - Docker Compose
+# 사용법: docker compose up -d
+# ============================================================
+
+services:
+
+  # ── FastAPI 백엔드 ──────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./mlflow_runs:/app/mlflow_runs
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ── Streamlit 프론트엔드 ────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "8501:8501"
+    env_file: .env
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # ── Redis (세션 캐시) ───────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # ── MLflow UI (파인튜닝 실험 대시보드) ──────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlflow_runs:/mlflow
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri /mlflow
+    restart: unless-stopped
+
+volumes:
+  redis_data:

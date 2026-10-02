@@ -1,0 +1,150 @@
+"""
+agents/reviewer.py
+
+LangGraph 노드: reviewer
+
+역할
+----
+resume_draft를 자기검토하여 개선된 resume_final을 생성합니다.
+
+검토 체크리스트
+---------------
+1. 키워드 매칭  : 필수 기술이 이력서에 자연스럽게 포함됐는가
+2. 문체/어조    : 능동적이고 자신감 있는 표현인가
+3. 수치화       : 경험의 60% 이상에 수치(숫자, %)가 있는가
+4. 구조/포맷    : ATS 친화적 Markdown, 일관된 구조인가
+5. 일관성       : 날짜, 회사명, 직무명이 논리적으로 일치하는가
+6. 한국어 완성도: 맞춤법, 어색한 표현 수정 (한국어 공고인 경우)
+
+결과는 state["resume_final"] 에 저장됩니다.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+from agents.state import GoodJobState
+
+logger = logging.getLogger(__name__)
+
+SYSTEM_PROMPT = """\
+당신은 엄격한 이력서 교정 전문가이자 ATS 최적화 전문가입니다.
+이력서 초안을 검토하고 완성도 높은 최종본을 출력합니다.
+개선된 Markdown 이력서만 출력하세요. 설명이나 부연은 불필요합니다.
+"""
+
+REVIEW_PROMPT_TEMPLATE = """\
+### 채용공고 요구사항 (키워드 참조용)
+{job_requirements_text}
+
+### 검토할 이력서 초안
+{resume_draft}
+
+### 검토 체크리스트 — 아래 항목을 모두 수정하세요:
+
+1. 키워드 매칭
+   - 필수 기술이 이력서 본문에 자연스럽게 포함됐는가
+   - 누락된 키워드는 해당 경험과 연결하여 추가
+
+2. 문체/어조
+   - 수동태 → 능동태 변환 (예: "담당했음" → "주도함")
+   - 약한 표현 → 강한 동사 (예: "참여" → "리드", "개발에 기여" → "개발")
+
+3. 수치화
+   - 수치 없는 경험 항목: 구체적인 숫자나 규모로 보강
+     (예: "성능 개선" → "API 응답시간 35% 단축")
+
+4. 구조/포맷
+   - ## 헤더, 불릿 포인트 일관성 확인
+   - 각 경력 항목: 회사명 / 기간 / 직무 형식 통일
+
+5. 일관성
+   - 중복 내용 제거
+   - 날짜 순서 오류 수정 (최신순)
+
+6. 마무리
+   - 전체 분량: A4 1~2페이지 분량으로 조정
+   - 지원 직무와 무관한 내용 제거
+
+개선된 최종 이력서를 Markdown으로만 출력하세요.
+"""
+
+
+def build_review_prompt(state: GoodJobState) -> tuple[str, str]:
+    """프롬프트와 시스템 메시지를 반환합니다 (스트리밍 등 외부 호출용)."""
+    resume_draft: str = state.get("resume_draft") or ""
+    job_requirements: dict = state.get("job_requirements") or {}
+    job_req_text = _format_requirements(job_requirements)
+    prompt = REVIEW_PROMPT_TEMPLATE.format(
+        job_requirements_text=job_req_text,
+        resume_draft=resume_draft,
+    )
+    return prompt, SYSTEM_PROMPT
+
+
+def stream_reviewer(state: GoodJobState):
+    """최종 이력서를 토큰 단위로 스트리밍합니다 (Streamlit st.write_stream 용)."""
+    from llm.openai_client import OpenAIClient
+    if not (state.get("resume_draft") or "").strip():
+        return
+    prompt, system = build_review_prompt(state)
+    client = OpenAIClient()
+    yield from client.stream(prompt=prompt, system=system, max_tokens=3000)
+
+
+def reviewer_node(state: GoodJobState) -> GoodJobState:
+    """이력서 초안을 검토하고 최종본을 생성합니다."""
+    logger.info("[reviewer] 이력서 검토 시작.")
+    state["current_step"] = "reviewer"
+    errors: list[str] = state.get("errors") or []
+
+    resume_draft: Optional[str] = state.get("resume_draft") or ""
+    job_requirements: dict = state.get("job_requirements") or {}
+
+    if not resume_draft.strip():
+        logger.warning("[reviewer] resume_draft 가 비어있습니다.")
+        errors.append("reviewer: 검토할 이력서 초안이 없습니다.")
+        state["errors"] = errors
+        state["resume_final"] = resume_draft
+        return state
+
+    job_req_text = _format_requirements(job_requirements)
+    prompt = REVIEW_PROMPT_TEMPLATE.format(
+        job_requirements_text=job_req_text,
+        resume_draft=resume_draft,
+    )
+
+    try:
+        from llm.openai_client import OpenAIClient
+        client = OpenAIClient()
+        resume_final = client.generate(
+            prompt=prompt,
+            system=SYSTEM_PROMPT,
+            max_tokens=3000,
+            temperature=0.2,  # 낮은 temperature → 일관된 교정
+        )
+    except Exception as exc:
+        logger.error("[reviewer] LLM 호출 실패: %s", exc)
+        errors.append(f"reviewer: LLM 오류 – {exc}")
+        resume_final = resume_draft  # 실패 시 초안을 그대로 사용
+
+    logger.info("[reviewer] 최종 이력서 완성 (%d자).", len(resume_final))
+    state["resume_final"] = resume_final
+    state["errors"] = errors
+    return state
+
+
+# ------------------------------------------------------------------ #
+# Helpers                                                              #
+# ------------------------------------------------------------------ #
+
+def _format_requirements(req: dict) -> str:
+    parts = []
+    if req.get("required_skills"):
+        parts.append("필수: " + ", ".join(req["required_skills"]))
+    if req.get("preferred_skills"):
+        parts.append("우대: " + ", ".join(req["preferred_skills"]))
+    if req.get("keywords"):
+        parts.append("키워드: " + ", ".join(req["keywords"][:12]))
+    return "\n".join(parts) or "(요구사항 없음)"
