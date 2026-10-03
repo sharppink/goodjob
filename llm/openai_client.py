@@ -37,7 +37,9 @@ def _get_openai_client(api_key: str):
     global _shared_openai
     if _shared_openai is None:
         from openai import OpenAI
-        _shared_openai = OpenAI(api_key=api_key)
+        # 429(분당 토큰 한도) 시 SDK 가 retry-after 를 지켜 지수 백오프로 재시도.
+        # 기본 2회로는 tier 1 한도(gpt-4o 30k TPM)에서 연속 호출 시 실패함 (PROJECT_DOCS #016)
+        _shared_openai = OpenAI(api_key=api_key, max_retries=8)
     return _shared_openai
 
 

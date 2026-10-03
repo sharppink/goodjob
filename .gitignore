@@ -50,6 +50,7 @@ model_cache/
 
 # --- Finetune Artifacts ---
 finetune/dataset/
+finetune/goodjob_colab.zip
 finetune/outputs/
 finetune/checkpoints/
 runs/
@@ -77,6 +78,8 @@ logs/
 # --- Jupyter ---
 .ipynb_checkpoints/
 *.ipynb
+# 파인튜닝 실행 노트북은 산출물이므로 포함 (출력 없이 커밋)
+!finetune/colab_finetune.ipynb
 
 # --- Uploads / Temp ---
 uploads/

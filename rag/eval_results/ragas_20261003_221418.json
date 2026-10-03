@@ -1,0 +1,507 @@
+{
+  "summary": {
+    "vector_top5": {
+      "context_recall": 0.9,
+      "context_precision": 0.911,
+      "faithfulness": 0.808,
+      "answer_relevancy": 0.331
+    },
+    "rerank_top5": {
+      "context_recall": 0.65,
+      "context_precision": 0.817,
+      "faithfulness": 0.942,
+      "answer_relevancy": 0.247
+    },
+    "vector_top3": {
+      "context_recall": 0.7,
+      "context_precision": 0.883,
+      "faithfulness": 0.842,
+      "answer_relevancy": 0.27
+    }
+  },
+  "configs": {
+    "A": {
+      "name": "vector_top5",
+      "reranker": false,
+      "k": 5
+    },
+    "B": {
+      "name": "rerank_top5",
+      "reranker": true,
+      "k": 5
+    },
+    "C": {
+      "name": "vector_top3",
+      "reranker": false,
+      "k": 3
+    }
+  },
+  "details": {
+    "vector_top5": [
+      {
+        "user_input": "Kubernetes 운영 경험이 있나요?",
+        "retrieved_contexts": [
+          "자격증: 정보처리기사, AWS Solutions Architect Associate, CKA (Certified Kubernetes Administrator)",
+          "기술: AWS (EKS, RDS, S3), Kubernetes, Helm, Terraform, GitHub Actions, Prometheus, Grafana",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간",
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분",
+          "대외활동: 오픈소스 Kafka 커넥터 프로젝트 컨트리뷰터, 사내 기술 블로그 글 12편 작성"
+        ],
+        "response": "네, Kubernetes 운영 경험이 있습니다. 핀테크 B사에서 AWS EKS 클러스터 3개를 운영하였으며, Helm 차트 표준화를 통해 신규 서비스 배포 시간을 크게 단축시킨 경험이 있습니다.",
+        "reference": "핀테크 B사에서 AWS EKS 클러스터 3개를 운영했고 Helm 차트 표준화로 배포 준비 시간을 2일에서 2시간으로 줄였다. CKA 자격증을 보유하고 있다.",
+        "context_recall": 1.0,
+        "context_precision": 0.9999999999666667,
+        "faithfulness": 0.6666666666666666,
+        "answer_relevancy": 0.6861590716058646
+      },
+      {
+        "user_input": "대용량 트래픽 처리 경험을 설명해 주세요.",
+        "retrieved_contexts": [
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)",
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리",
+          "장애 대응: 블랙프라이데이 트래픽 5배 급증 시 Redis 캐시 히트율 개선과 오토스케일링 조정으로 무장애 운영",
+          "대외활동: 오픈소스 Kafka 커넥터 프로젝트 컨트리뷰터, 사내 기술 블로그 글 12편 작성"
+        ],
+        "response": "지원자는 핀테크 B사에서 백엔드 개발자로 일하며 일 거래 200만 건을 처리하는 결제 승인 API를 개발했습니다. 또한, 블랙프라이데이 트래픽이 5배 급증했을 때 Redis 캐시 히트율 개선과 오토스케일링 조정을 통해 무장애 운영을 성공적으로 수행한 경험이 있습니다.",
+        "reference": "일 거래 200만 건을 처리하는 결제 승인 API를 개발했고, 블랙프라이데이에 트래픽이 5배 급증했을 때 Redis 캐시 히트율 개선과 오토스케일링 조정으로 무장애 운영했다.",
+        "context_recall": 1.0,
+        "context_precision": 0.999999999975,
+        "faithfulness": 0.75,
+        "answer_relevancy": 0.2883219779797907
+      },
+      {
+        "user_input": "API 성능을 개선한 경험이 있나요?",
+        "retrieved_contexts": [
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리",
+          "경력: 이커머스 C사 - Elasticsearch 도입으로 상품 검색 응답 800ms → 120ms, 검색 전환율 15% 증가",
+          "기술: AWS (EKS, RDS, S3), Kubernetes, Helm, Terraform, GitHub Actions, Prometheus, Grafana",
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감"
+        ],
+        "response": "네, 핀테크 B사에서 결제 승인 API의 p99 지연을 1.2초에서 300ms로 단축한 경험이 있습니다. 이를 위해 커넥션 풀 튜닝과 비동기 로깅 전환을 진행했습니다.",
+        "reference": "결제 승인 API p99 지연을 1.2초에서 300ms로 단축했고, Elasticsearch 도입으로 상품 검색 응답을 800ms에서 120ms로 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.94999999997625,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.3640196740784792
+      },
+      {
+        "user_input": "메시지 큐나 스트리밍 처리 경험이 있나요?",
+        "retrieved_contexts": [
+          "장애 대응: 블랙프라이데이 트래픽 5배 급증 시 Redis 캐시 히트율 개선과 오토스케일링 조정으로 무장애 운영",
+          "경력: 이커머스 C사 - Elasticsearch 도입으로 상품 검색 응답 800ms → 120ms, 검색 전환율 15% 증가",
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)",
+          "대외활동: 오픈소스 Kafka 커넥터 프로젝트 컨트리뷰터, 사내 기술 블로그 글 12편 작성",
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분"
+        ],
+        "response": "네, 핀테크 B사에서 Kafka 기반 이벤트 파이프라인을 구축한 경험이 있습니다. 또한, 정산 배치를 실시간 스트리밍으로 전환하여 정산 지연을 하루에서 10분으로 단축한 경험도 있습니다.",
+        "reference": "Kafka 기반 이벤트 파이프라인을 구축해 정산 배치를 실시간 스트리밍으로 전환했고 정산 지연을 하루에서 10분으로 줄였다. 오픈소스 Kafka 커넥터 프로젝트에도 기여했다.",
+        "context_recall": 1.0,
+        "context_precision": 0.32499999998375,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.17766432126692444
+      },
+      {
+        "user_input": "LLM이나 생성형 AI 관련 경험이 있나요?",
+        "retrieved_contexts": [
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감",
+          "자격증: 정보처리기사, AWS Solutions Architect Associate, CKA (Certified Kubernetes Administrator)",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리",
+          "학력: 한국대학교 컴퓨터공학과 졸업 (2019)",
+          "기술: AWS (EKS, RDS, S3), Kubernetes, Helm, Terraform, GitHub Actions, Prometheus, Grafana"
+        ],
+        "response": "프로필에서 확인된 바에 따르면, 사내 LLM 상담봇 프로젝트에 참여하여 LangChain과 OpenAI API를 사용한 경험이 있습니다. 이 프로젝트를 통해 고객 문의 자동 분류 및 상담원 1차 응대 업무를 40% 절감한 성과를 달성했습니다.",
+        "reference": "LangChain과 OpenAI API로 고객 문의를 자동 분류하는 사내 LLM 상담봇을 만들어 상담원 1차 응대 업무를 40% 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.9999999999,
+        "faithfulness": 0.0,
+        "answer_relevancy": 0.47503846003756683
+      },
+      {
+        "user_input": "머신러닝 모델 개발 경험이 있나요?",
+        "retrieved_contexts": [
+          "프로젝트: 이상거래 탐지 모델 - XGBoost로 이상 결제 탐지, 정밀도 0.91 / 재현율 0.84, 월 손실액 30% 감소",
+          "경력: 이커머스 C사 (2019~2021) 주니어 백엔드 개발자 - Django REST Framework로 상품 검색 API 개발",
+          "장애 대응: 블랙프라이데이 트래픽 5배 급증 시 Redis 캐시 히트율 개선과 오토스케일링 조정으로 무장애 운영",
+          "대외활동: 오픈소스 Kafka 커넥터 프로젝트 컨트리뷰터, 사내 기술 블로그 글 12편 작성",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리"
+        ],
+        "response": "네, 이상거래 탐지 모델을 개발한 경험이 있습니다. XGBoost를 사용하여 이상 결제를 탐지하였고, 정밀도 0.91과 재현율 0.84를 달성하였습니다.",
+        "reference": "XGBoost로 이상 결제 탐지 모델을 개발해 정밀도 0.91, 재현율 0.84를 달성했고 월 손실액을 30% 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.9999999999,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.4421053284083809
+      },
+      {
+        "user_input": "팀 리딩이나 협업 경험을 알려주세요.",
+        "retrieved_contexts": [
+          "협업: 결제팀 4명 리드 — 주 1회 기술 공유 세션 운영, 코드 리뷰 문화 정착 (PR 리뷰 평균 24시간 → 4시간)",
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리",
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)",
+          "이름: 이영희 / 백엔드·데이터 엔지니어 5년차"
+        ],
+        "response": "이영희는 결제팀 4명을 리드하며 주 1회 기술 공유 세션을 운영하고, 코드 리뷰 문화를 정착시켰습니다. 이로 인해 PR 리뷰 평균 시간이 24시간에서 4시간으로 단축되었습니다.",
+        "reference": "결제팀 4명을 리드하며 주 1회 기술 공유 세션을 운영했고 코드 리뷰 문화를 정착시켜 PR 리뷰 시간을 평균 24시간에서 4시간으로 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.8333333332916666,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.35682341506313303
+      },
+      {
+        "user_input": "검색 엔진 관련 경험이 있나요?",
+        "retrieved_contexts": [
+          "경력: 이커머스 C사 - Elasticsearch 도입으로 상품 검색 응답 800ms → 120ms, 검색 전환율 15% 증가",
+          "경력: 이커머스 C사 (2019~2021) 주니어 백엔드 개발자 - Django REST Framework로 상품 검색 API 개발",
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감",
+          "대외활동: 오픈소스 Kafka 커넥터 프로젝트 컨트리뷰터, 사내 기술 블로그 글 12편 작성",
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)"
+        ],
+        "response": "네, 이커머스 C사에서 Elasticsearch를 도입하여 상품 검색 응답 시간을 800ms에서 120ms로 단축시키고, 검색 전환율을 15% 증가시킨 경험이 있습니다.",
+        "reference": "이커머스 C사에서 Elasticsearch를 도입해 상품 검색 응답을 800ms에서 120ms로 줄이고 검색 전환율을 15% 높였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.99999999995,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.17798110021369337
+      },
+      {
+        "user_input": "Python 웹 프레임워크 경험은 어느 정도인가요?",
+        "retrieved_contexts": [
+          "기술: Java, Spring Boot, Python, Django, FastAPI, Kafka, Elasticsearch, PostgreSQL, Redis",
+          "경력: 이커머스 C사 (2019~2021) 주니어 백엔드 개발자 - Django REST Framework로 상품 검색 API 개발",
+          "대외활동: 오픈소스 Kafka 커넥터 프로젝트 컨트리뷰터, 사내 기술 블로그 글 12편 작성",
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)",
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감"
+        ],
+        "response": "지원자는 Django와 FastAPI를 사용한 경험이 있으며, Django REST Framework로 상품 검색 API를 개발한 경력이 있습니다. 따라서 Python 웹 프레임워크에 대한 경험이 있습니다.",
+        "reference": "이커머스 C사에서 Django REST Framework로 상품 검색 API를 개발했고, 기술 스택에 Python, Django, FastAPI가 있다.",
+        "context_recall": 1.0,
+        "context_precision": 0.99999999995,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.3408840790733126
+      },
+      {
+        "user_input": "보유한 클라우드 관련 자격증과 인프라 자동화 경험은?",
+        "retrieved_contexts": [
+          "자격증: 정보처리기사, AWS Solutions Architect Associate, CKA (Certified Kubernetes Administrator)",
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감",
+          "경력: 이커머스 C사 (2019~2021) 주니어 백엔드 개발자 - Django REST Framework로 상품 검색 API 개발",
+          "협업: 결제팀 4명 리드 — 주 1회 기술 공유 세션 운영, 코드 리뷰 문화 정착 (PR 리뷰 평균 24시간 → 4시간)",
+          "경력: 이커머스 C사 - Elasticsearch 도입으로 상품 검색 응답 800ms → 120ms, 검색 전환율 15% 증가"
+        ],
+        "response": "지원자는 AWS Solutions Architect Associate와 CKA (Certified Kubernetes Administrator) 자격증을 보유하고 있습니다. 그러나 인프라 자동화 경험에 대한 정보는 프로필에서 확인되지 않습니다.",
+        "reference": "AWS Solutions Architect Associate와 CKA 자격증을 보유했고 Terraform, Helm, GitHub Actions를 사용한다.",
+        "context_recall": 0.0,
+        "context_precision": 0.9999999999,
+        "faithfulness": 0.6666666666666666,
+        "answer_relevancy": 0.0
+      }
+    ],
+    "rerank_top5": [
+      {
+        "user_input": "Kubernetes 운영 경험이 있나요?",
+        "retrieved_contexts": [
+          "자격증: 정보처리기사, AWS Solutions Architect Associate, CKA (Certified Kubernetes Administrator)",
+          "기술: AWS (EKS, RDS, S3), Kubernetes, Helm, Terraform, GitHub Actions, Prometheus, Grafana",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간",
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리"
+        ],
+        "response": "네, 지원자는 Kubernetes 운영 경험이 있으며, 핀테크 B사에서 AWS EKS 클러스터 3개를 운영한 경력이 있습니다. 또한 CKA 자격증을 보유하고 있습니다.",
+        "reference": "핀테크 B사에서 AWS EKS 클러스터 3개를 운영했고 Helm 차트 표준화로 배포 준비 시간을 2일에서 2시간으로 줄였다. CKA 자격증을 보유하고 있다.",
+        "context_recall": 1.0,
+        "context_precision": 0.9999999999666667,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.4989938915357966
+      },
+      {
+        "user_input": "대용량 트래픽 처리 경험을 설명해 주세요.",
+        "retrieved_contexts": [
+          "장애 대응: 블랙프라이데이 트래픽 5배 급증 시 Redis 캐시 히트율 개선과 오토스케일링 조정으로 무장애 운영",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간",
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분",
+          "기술: Java, Spring Boot, Python, Django, FastAPI, Kafka, Elasticsearch, PostgreSQL, Redis"
+        ],
+        "response": "지원자는 블랙프라이데이 트래픽이 5배 급증했을 때 Redis 캐시 히트율을 개선하고 오토스케일링을 조정하여 무장애 운영을 성공적으로 수행한 경험이 있습니다. 또한, 핀테크 B사에서 일 거래 200만 건을 처리하는 결제 승인 API를 개발한 경력이 있습니다.",
+        "reference": "일 거래 200만 건을 처리하는 결제 승인 API를 개발했고, 블랙프라이데이에 트래픽이 5배 급증했을 때 Redis 캐시 히트율 개선과 오토스케일링 조정으로 무장애 운영했다.",
+        "context_recall": 1.0,
+        "context_precision": 0.999999999975,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.2912355185207507
+      },
+      {
+        "user_input": "API 성능을 개선한 경험이 있나요?",
+        "retrieved_contexts": [
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)",
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간",
+          "경력: 이커머스 C사 - Elasticsearch 도입으로 상품 검색 응답 800ms → 120ms, 검색 전환율 15% 증가"
+        ],
+        "response": "네, 핀테크 B사에서 결제 승인 API의 p99 지연을 1.2초에서 300ms로 단축한 경험이 있습니다. 이를 위해 커넥션 풀 튜닝과 비동기 로깅 전환을 진행했습니다.",
+        "reference": "결제 승인 API p99 지연을 1.2초에서 300ms로 단축했고, Elasticsearch 도입으로 상품 검색 응답을 800ms에서 120ms로 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.99999999998,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.36931396183908016
+      },
+      {
+        "user_input": "메시지 큐나 스트리밍 처리 경험이 있나요?",
+        "retrieved_contexts": [
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분",
+          "자격증: 정보처리기사, AWS Solutions Architect Associate, CKA (Certified Kubernetes Administrator)",
+          "기술: AWS (EKS, RDS, S3), Kubernetes, Helm, Terraform, GitHub Actions, Prometheus, Grafana",
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간"
+        ],
+        "response": "네, 핀테크 B사에서 Kafka 기반 이벤트 파이프라인을 구축한 경험이 있습니다. 이를 통해 정산 배치를 실시간 스트리밍으로 전환하여 정산 지연을 하루에서 10분으로 단축했습니다.",
+        "reference": "Kafka 기반 이벤트 파이프라인을 구축해 정산 배치를 실시간 스트리밍으로 전환했고 정산 지연을 하루에서 10분으로 줄였다. 오픈소스 Kafka 커넥터 프로젝트에도 기여했다.",
+        "context_recall": 0.5,
+        "context_precision": 0.9999999999,
+        "faithfulness": 0.75,
+        "answer_relevancy": 0.17819089197609084
+      },
+      {
+        "user_input": "LLM이나 생성형 AI 관련 경험이 있나요?",
+        "retrieved_contexts": [
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감",
+          "이름: 이영희 / 백엔드·데이터 엔지니어 5년차",
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간",
+          "자격증: 정보처리기사, AWS Solutions Architect Associate, CKA (Certified Kubernetes Administrator)"
+        ],
+        "response": "프로필에서 확인되지 않습니다.",
+        "reference": "LangChain과 OpenAI API로 고객 문의를 자동 분류하는 사내 LLM 상담봇을 만들어 상담원 1차 응대 업무를 40% 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.9999999999,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.0
+      },
+      {
+        "user_input": "머신러닝 모델 개발 경험이 있나요?",
+        "retrieved_contexts": [
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분",
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간",
+          "기술: Java, Spring Boot, Python, Django, FastAPI, Kafka, Elasticsearch, PostgreSQL, Redis",
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)"
+        ],
+        "response": "프로필에서 확인되지 않습니다.",
+        "reference": "XGBoost로 이상 결제 탐지 모델을 개발해 정밀도 0.91, 재현율 0.84를 달성했고 월 손실액을 30% 줄였다.",
+        "context_recall": 0.0,
+        "context_precision": 0.0,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.0
+      },
+      {
+        "user_input": "팀 리딩이나 협업 경험을 알려주세요.",
+        "retrieved_contexts": [
+          "협업: 결제팀 4명 리드 — 주 1회 기술 공유 세션 운영, 코드 리뷰 문화 정착 (PR 리뷰 평균 24시간 → 4시간)",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리",
+          "경력: 이커머스 C사 (2019~2021) 주니어 백엔드 개발자 - Django REST Framework로 상품 검색 API 개발",
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분"
+        ],
+        "response": "지원자는 결제팀에서 4명을 리드하며 주 1회 기술 공유 세션을 운영하고, 코드 리뷰 문화를 정착시켜 PR 리뷰 시간을 평균 24시간에서 4시간으로 단축시킨 경험이 있습니다. 이러한 경험을 통해 팀 내 협업을 강화하고 효율성을 높였습니다.",
+        "reference": "결제팀 4명을 리드하며 주 1회 기술 공유 세션을 운영했고 코드 리뷰 문화를 정착시켜 PR 리뷰 시간을 평균 24시간에서 4시간으로 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.8055555555287036,
+        "faithfulness": 0.6666666666666666,
+        "answer_relevancy": 0.3135837847551832
+      },
+      {
+        "user_input": "검색 엔진 관련 경험이 있나요?",
+        "retrieved_contexts": [
+          "경력: 이커머스 C사 - Elasticsearch 도입으로 상품 검색 응답 800ms → 120ms, 검색 전환율 15% 증가",
+          "경력: 이커머스 C사 (2019~2021) 주니어 백엔드 개발자 - Django REST Framework로 상품 검색 API 개발",
+          "이름: 이영희 / 백엔드·데이터 엔지니어 5년차",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간",
+          "기술: Java, Spring Boot, Python, Django, FastAPI, Kafka, Elasticsearch, PostgreSQL, Redis"
+        ],
+        "response": "네, 이커머스 C사에서 Elasticsearch를 도입하여 상품 검색 응답 시간을 800ms에서 120ms로 단축시키고, 검색 전환율을 15% 증가시킨 경험이 있습니다. 또한, Django REST Framework를 사용하여 상품 검색 API를 개발한 경력이 있습니다.",
+        "reference": "이커머스 C사에서 Elasticsearch를 도입해 상품 검색 응답을 800ms에서 120ms로 줄이고 검색 전환율을 15% 높였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.8666666666377778,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.17103408246306712
+      },
+      {
+        "user_input": "Python 웹 프레임워크 경험은 어느 정도인가요?",
+        "retrieved_contexts": [
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간",
+          "기술: Java, Spring Boot, Python, Django, FastAPI, Kafka, Elasticsearch, PostgreSQL, Redis",
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리",
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)"
+        ],
+        "response": "지원자는 Django와 FastAPI를 사용한 경험이 있습니다. 프로필에서 확인된 바에 따르면, Python 웹 프레임워크에 대한 경험이 있습니다.",
+        "reference": "이커머스 C사에서 Django REST Framework로 상품 검색 API를 개발했고, 기술 스택에 Python, Django, FastAPI가 있다.",
+        "context_recall": 0.0,
+        "context_precision": 0.49999999995,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.2712693486079357
+      },
+      {
+        "user_input": "보유한 클라우드 관련 자격증과 인프라 자동화 경험은?",
+        "retrieved_contexts": [
+          "자격증: 정보처리기사, AWS Solutions Architect Associate, CKA (Certified Kubernetes Administrator)",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간",
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분",
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)",
+          "이름: 이영희 / 백엔드·데이터 엔지니어 5년차"
+        ],
+        "response": "지원자는 AWS Solutions Architect Associate와 CKA (Certified Kubernetes Administrator) 자격증을 보유하고 있습니다. 또한, 핀테크 B사에서 AWS EKS 클러스터 운영 및 Helm 차트 표준화를 통해 인프라 자동화 경험을 쌓았습니다.",
+        "reference": "AWS Solutions Architect Associate와 CKA 자격증을 보유했고 Terraform, Helm, GitHub Actions를 사용한다.",
+        "context_recall": 0.0,
+        "context_precision": 0.99999999995,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.37360160344641474
+      }
+    ],
+    "vector_top3": [
+      {
+        "user_input": "Kubernetes 운영 경험이 있나요?",
+        "retrieved_contexts": [
+          "자격증: 정보처리기사, AWS Solutions Architect Associate, CKA (Certified Kubernetes Administrator)",
+          "기술: AWS (EKS, RDS, S3), Kubernetes, Helm, Terraform, GitHub Actions, Prometheus, Grafana",
+          "경력: 핀테크 B사 - AWS EKS 클러스터 3개 운영, Helm 차트 표준화로 신규 서비스 배포 준비 시간 2일 → 2시간"
+        ],
+        "response": "네, 지원자는 CKA 자격증을 보유하고 있으며, 핀테크 B사에서 AWS EKS 클러스터 3개를 운영한 경험이 있습니다.",
+        "reference": "핀테크 B사에서 AWS EKS 클러스터 3개를 운영했고 Helm 차트 표준화로 배포 준비 시간을 2일에서 2시간으로 줄였다. CKA 자격증을 보유하고 있다.",
+        "context_recall": 1.0,
+        "context_precision": 0.9999999999666667,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.4513337520074121
+      },
+      {
+        "user_input": "대용량 트래픽 처리 경험을 설명해 주세요.",
+        "retrieved_contexts": [
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)",
+          "경력: 핀테크 B사 - Kafka 기반 이벤트 파이프라인 구축, 정산 배치를 실시간 스트리밍으로 전환해 정산 지연 하루 → 10분",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리"
+        ],
+        "response": "지원자는 핀테크 B사에서 백엔드 개발자로 일하며, Spring Boot 기반 결제 승인 API를 개발하여 일 거래 200만 건을 처리한 경험이 있습니다. 또한, Kafka 기반 이벤트 파이프라인을 구축하여 정산 배치를 실시간 스트리밍으로 전환함으로써 정산 지연을 하루에서 10분으로 단축한 경험도 있습니다.",
+        "reference": "일 거래 200만 건을 처리하는 결제 승인 API를 개발했고, 블랙프라이데이에 트래픽이 5배 급증했을 때 Redis 캐시 히트율 개선과 오토스케일링 조정으로 무장애 운영했다.",
+        "context_recall": 0.0,
+        "context_precision": 0.9999999999666667,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.18315398778776493
+      },
+      {
+        "user_input": "API 성능을 개선한 경험이 있나요?",
+        "retrieved_contexts": [
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리",
+          "경력: 이커머스 C사 - Elasticsearch 도입으로 상품 검색 응답 800ms → 120ms, 검색 전환율 15% 증가"
+        ],
+        "response": "네, 핀테크 B사에서 결제 승인 API의 p99 지연을 1.2초에서 300ms로 단축한 경험이 있습니다. 이를 위해 커넥션 풀 튜닝과 비동기 로깅 전환을 진행했습니다.",
+        "reference": "결제 승인 API p99 지연을 1.2초에서 300ms로 단축했고, Elasticsearch 도입으로 상품 검색 응답을 800ms에서 120ms로 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.9999999999666667,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.36931396183908016
+      },
+      {
+        "user_input": "메시지 큐나 스트리밍 처리 경험이 있나요?",
+        "retrieved_contexts": [
+          "장애 대응: 블랙프라이데이 트래픽 5배 급증 시 Redis 캐시 히트율 개선과 오토스케일링 조정으로 무장애 운영",
+          "경력: 이커머스 C사 - Elasticsearch 도입으로 상품 검색 응답 800ms → 120ms, 검색 전환율 15% 증가",
+          "경력: 핀테크 B사 - 결제 승인 API p99 지연을 1.2초에서 300ms로 단축 (커넥션 풀 튜닝, 비동기 로깅 전환)"
+        ],
+        "response": "프로필에서 확인되지 않습니다.",
+        "reference": "Kafka 기반 이벤트 파이프라인을 구축해 정산 배치를 실시간 스트리밍으로 전환했고 정산 지연을 하루에서 10분으로 줄였다. 오픈소스 Kafka 커넥터 프로젝트에도 기여했다.",
+        "context_recall": 0.0,
+        "context_precision": 0.0,
+        "faithfulness": 0.0,
+        "answer_relevancy": 0.0
+      },
+      {
+        "user_input": "LLM이나 생성형 AI 관련 경험이 있나요?",
+        "retrieved_contexts": [
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감",
+          "자격증: 정보처리기사, AWS Solutions Architect Associate, CKA (Certified Kubernetes Administrator)",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리"
+        ],
+        "response": "네, 사내 LLM 상담봇 프로젝트에서 LangChain과 OpenAI API를 사용하여 고객 문의를 자동으로 분류하는 경험이 있습니다. 이 프로젝트를 통해 상담원 1차 응대 업무를 40% 절감하는 성과를 달성했습니다.",
+        "reference": "LangChain과 OpenAI API로 고객 문의를 자동 분류하는 사내 LLM 상담봇을 만들어 상담원 1차 응대 업무를 40% 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.9999999999,
+        "faithfulness": 0.75,
+        "answer_relevancy": 0.4208889740637944
+      },
+      {
+        "user_input": "머신러닝 모델 개발 경험이 있나요?",
+        "retrieved_contexts": [
+          "프로젝트: 이상거래 탐지 모델 - XGBoost로 이상 결제 탐지, 정밀도 0.91 / 재현율 0.84, 월 손실액 30% 감소",
+          "경력: 이커머스 C사 (2019~2021) 주니어 백엔드 개발자 - Django REST Framework로 상품 검색 API 개발",
+          "장애 대응: 블랙프라이데이 트래픽 5배 급증 시 Redis 캐시 히트율 개선과 오토스케일링 조정으로 무장애 운영"
+        ],
+        "response": "네, 이상거래 탐지 모델을 개발한 경험이 있습니다. XGBoost를 사용하여 이상 결제를 탐지하였고, 정밀도 0.91과 재현율 0.84를 달성했습니다.",
+        "reference": "XGBoost로 이상 결제 탐지 모델을 개발해 정밀도 0.91, 재현율 0.84를 달성했고 월 손실액을 30% 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.9999999999,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.4482284267209843
+      },
+      {
+        "user_input": "팀 리딩이나 협업 경험을 알려주세요.",
+        "retrieved_contexts": [
+          "협업: 결제팀 4명 리드 — 주 1회 기술 공유 세션 운영, 코드 리뷰 문화 정착 (PR 리뷰 평균 24시간 → 4시간)",
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감",
+          "경력: 핀테크 B사 (2021~2025) 백엔드 개발자 - Spring Boot 기반 결제 승인 API 개발, 일 거래 200만 건 처리"
+        ],
+        "response": "지원자는 결제팀에서 4명을 리드하며 주 1회 기술 공유 세션을 운영하고, 코드 리뷰 문화를 정착시킨 경험이 있습니다. 이로 인해 PR 리뷰 시간이 평균 24시간에서 4시간으로 단축되었습니다.",
+        "reference": "결제팀 4명을 리드하며 주 1회 기술 공유 세션을 운영했고 코드 리뷰 문화를 정착시켜 PR 리뷰 시간을 평균 24시간에서 4시간으로 줄였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.8333333332916666,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.3086825195438668
+      },
+      {
+        "user_input": "검색 엔진 관련 경험이 있나요?",
+        "retrieved_contexts": [
+          "경력: 이커머스 C사 - Elasticsearch 도입으로 상품 검색 응답 800ms → 120ms, 검색 전환율 15% 증가",
+          "경력: 이커머스 C사 (2019~2021) 주니어 백엔드 개발자 - Django REST Framework로 상품 검색 API 개발",
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감"
+        ],
+        "response": "네, 이커머스 C사에서 Elasticsearch를 도입하여 상품 검색 응답 시간을 800ms에서 120ms로 단축시키고, 검색 전환율을 15% 증가시킨 경험이 있습니다. 또한, Django REST Framework를 사용하여 상품 검색 API를 개발한 경험도 있습니다.",
+        "reference": "이커머스 C사에서 Elasticsearch를 도입해 상품 검색 응답을 800ms에서 120ms로 줄이고 검색 전환율을 15% 높였다.",
+        "context_recall": 1.0,
+        "context_precision": 0.99999999995,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.18062535799661936
+      },
+      {
+        "user_input": "Python 웹 프레임워크 경험은 어느 정도인가요?",
+        "retrieved_contexts": [
+          "기술: Java, Spring Boot, Python, Django, FastAPI, Kafka, Elasticsearch, PostgreSQL, Redis",
+          "경력: 이커머스 C사 (2019~2021) 주니어 백엔드 개발자 - Django REST Framework로 상품 검색 API 개발",
+          "대외활동: 오픈소스 Kafka 커넥터 프로젝트 컨트리뷰터, 사내 기술 블로그 글 12편 작성"
+        ],
+        "response": "지원자는 Django와 FastAPI를 사용한 경험이 있으며, 이커머스 C사에서 Django REST Framework로 상품 검색 API를 개발한 경력이 있습니다. 따라서 Python 웹 프레임워크에 대한 경험이 있습니다.",
+        "reference": "이커머스 C사에서 Django REST Framework로 상품 검색 API를 개발했고, 기술 스택에 Python, Django, FastAPI가 있다.",
+        "context_recall": 1.0,
+        "context_precision": 0.99999999995,
+        "faithfulness": 0.6666666666666666,
+        "answer_relevancy": 0.3408840790733126
+      },
+      {
+        "user_input": "보유한 클라우드 관련 자격증과 인프라 자동화 경험은?",
+        "retrieved_contexts": [
+          "자격증: 정보처리기사, AWS Solutions Architect Associate, CKA (Certified Kubernetes Administrator)",
+          "프로젝트: 사내 LLM 상담봇 - LangChain + OpenAI API로 고객 문의 자동 분류, 상담원 1차 응대 업무 40% 절감",
+          "경력: 이커머스 C사 (2019~2021) 주니어 백엔드 개발자 - Django REST Framework로 상품 검색 API 개발"
+        ],
+        "response": "지원자는 AWS Solutions Architect Associate와 CKA (Certified Kubernetes Administrator) 자격증을 보유하고 있습니다. 그러나 인프라 자동화 경험에 대한 정보는 프로필에서 확인되지 않습니다.",
+        "reference": "AWS Solutions Architect Associate와 CKA 자격증을 보유했고 Terraform, Helm, GitHub Actions를 사용한다.",
+        "context_recall": 0.0,
+        "context_precision": 0.9999999999,
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.0
+      }
+    ]
+  }
+}

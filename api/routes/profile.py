@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from rag.profile_loader import ProfileLoader
@@ -93,8 +94,8 @@ async def upload_pdf_profile(
         tmp_path = tmp.name
 
     try:
-        loader = ProfileLoader()
-        chunks = loader.load_from_pdf(tmp_path)
+        # 임베딩 API 호출이 포함된 동기 작업 → 이벤트 루프 블로킹 방지
+        chunks = await run_in_threadpool(lambda: ProfileLoader().load_from_pdf(tmp_path))
     except Exception as exc:  # noqa: BLE001
         logger.error("[profile/upload] Error: %s", exc)
         raise HTTPException(
@@ -123,8 +124,8 @@ async def submit_manual_profile(body: ManualProfileRequest) -> ProfileUploadResp
     logger.info("[profile/manual] Received profile for: %s", body.name)
 
     try:
-        loader = ProfileLoader()
-        chunks = loader.load_from_dict(body.model_dump(exclude_none=True))
+        data = body.model_dump(exclude_none=True)
+        chunks = await run_in_threadpool(lambda: ProfileLoader().load_from_dict(data))
     except Exception as exc:  # noqa: BLE001
         logger.error("[profile/manual] Error: %s", exc)
         raise HTTPException(
@@ -146,9 +147,7 @@ async def submit_manual_profile(body: ManualProfileRequest) -> ProfileUploadResp
 async def get_profile_status() -> ProfileStatusResponse:
     """Return the number of profile chunks currently indexed in the vector store."""
     try:
-        vs = VectorStore()
-        vs.initialize()
-        count = vs.count()
+        count = await run_in_threadpool(lambda: VectorStore().count())
         status_str = "ready" if count > 0 else "empty"
     except Exception as exc:  # noqa: BLE001
         logger.error("[profile/status] Error: %s", exc)

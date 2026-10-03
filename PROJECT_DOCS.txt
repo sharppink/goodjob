@@ -9,7 +9,7 @@
 ----------------------------------------------------------------
 0. 실제 개발 중 발생한 문제 기록 (최신순)
 1. 프로젝트 개요
-2. 현재 구현된 기능 (스캐폴딩 완료)
+2. 현재 구현된 기능 (2026-10-03 코드 기준 갱신)
 3. 사용 기술 상세 (이유 / 장점 / 단점 / 예상 문제)
 4. 추가 적용된 기술 A/B/C
 5. 앞으로 진행해야 할 과정
@@ -23,6 +23,267 @@
 
 이 섹션은 실제 개발/테스트 중 발생한 문제를 기록합니다.
 동일 문제 재발 방지 및 포트폴리오 트러블슈팅 근거 자료로 활용합니다.
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #017 Tavily 사용량 한도 초과로 학습 데이터 수집 중단 (600 목표 → 299)
+────────────────────────────────────────────────────────────────
+발생 위치  : finetune/data_collector.py (본 수집, --target 600 --append)
+증상       : 257번째 공고 이후 모든 검색이
+             "UsageLimitExceededError: Your request has been blocked due to excessive
+              requests ... Verify you are using production API keys."
+             이후 268회 검색이 전부 실패한 뒤에야 종료 (검색 횟수 상한까지 소모)
+원인       : Tavily 개발용 키(tvly-dev-)의 사용량 한도 도달로 추정.
+             수집 코드는 검색 실패를 건너뛰기만 해서 차단 상태에서도 계속 시도함
+해결 방법  : - 연속 5회 검색 실패 시 수집 중단 (MAX_CONSECUTIVE_SEARCH_FAILURES)
+             - 확보한 299건으로 진행: finalize_dataset() 로 정리
+                 중복 제거 28건 (같은 공고가 URL 만 다르게 수집 — 예: saramin jobs/view
+                 vs jobs/relay/view. 본문 유사도 ≥0.9 이고 직무명이 같을 때만 제거)
+                 비공고 축소 40건 (상한이 목표 600 기준으로 계산돼 30% 까지 늘었음 → 15%)
+               → 최종 231건 (공고 197 / 비공고 34), 직무 22종 전부, train 208 / eval 23
+해결 이유  : 중복이 train/eval 에 나뉘어 들어가면 평가 점수가 부풀려짐.
+             비공고가 과하면 "공고 아님" 쪽으로 편향됨
+현재 상태  : 데이터는 정리 완료. Tavily 키는 여전히 차단 상태
+             → 앱의 회사 검색·공고 추천 기능도 현재 동작 불가.
+               Tavily 대시보드에서 사용량 확인 또는 production 키 필요
+재발 방지  : python -m finetune.data_collector --finalize 로 정리 단계만 재실행 가능
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #016 gpt-4o 분당 토큰 한도(429) 로 재라벨링 중단
+────────────────────────────────────────────────────────────────
+발생 위치  : llm/openai_client.py (공유 OpenAI 클라이언트) — 연속 라벨링 시
+증상       : openai.RateLimitError 429 — "Limit 30000, Used 29661, Requested 457"
+원인       : 계정 tier 의 gpt-4o 한도가 분당 30,000 토큰. 공고 1건 라벨링 ≈ 3천 토큰이라
+             분당 ~9건이 상한. SDK 기본 재시도 2회로는 분 단위 창을 넘기지 못함
+해결 방법  : OpenAI(max_retries=8) — SDK 가 retry-after 헤더를 지켜 지수 백오프
+해결 이유  : 별도 재시도 코드 없이 SDK 기능으로 해결, 앱의 모든 OpenAI 호출에 적용됨
+             (문서 3-4 "exponential backoff 재시도 로직 추가 필요" 항목도 함께 해결)
+현재 상태  : 해결 완료 — 재실행 시 44건 전부 성공
+참고       : 본 수집 600건 ≈ 70분 이상 소요 예상 (한도 기준)
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #015 공고 파싱 평가 점수가 실제 품질보다 낮게 나옴 (지표·라벨 문제)
+────────────────────────────────────────────────────────────────
+발생 위치  : finetune/metrics.py, agents/job_parser.py JobRequirements 스키마
+증상       : 베이스 qwen2.5:7b 로컬 평가에서 required_skills_f1 = 0.143
+             그런데 실제 예측을 보면 대부분 같은 뜻을 다르게 표기한 것
+             ("playwright를 통한 e2e 테스트 작성 경험" vs "playwright를 통해 e2e test 작성 경력")
+원인       : 1) 지표가 완전 일치만 인정
+             2) 정답 라벨(gpt-4o) 자체가 들쭉날쭉 — "델파이"(짧은 이름),
+                "웹 서비스 QA 경력 1년 이상"(문장), "API 테스트: Postman"(접두어)
+                스키마 설명이 "필수 기술/자격 목록" 뿐이라 teacher 도 기준이 없었음.
+                기준 없는 라벨은 학생 모델이 일관된 패턴을 배울 수 없음
+해결 방법  : 1) 퍼지 매칭 F1 (1:1 대응, 유사도 ≥0.75, 포함 관계는 길이 50% 이상일 때만
+                — Java/JavaScript, C/C++ 오매칭 방지)
+             2) 스키마에 "짧은 기술명, 문장·'~경험' 금지, 경력은 experience_years 로" 규칙,
+                company_name 에 "(주)·채용 사이트명 제외" 명시 → 파일럿 44건 재라벨링
+해결 이유  : 학습 전에 고쳐야 600건 본 수집 비용이 낭비되지 않음.
+             짧은 기술명은 앱의 기술 배지·적합도 매칭에도 유리
+현재 상태  : 해결 완료 — 필수 기술 평균 14.4자 → 7.7자,
+             베이스 모델 required_skills_f1 0.143 → 0.726 (같은 모델, 측정·라벨만 개선)
+베이스 모델의 진짜 약점 (파인튜닝 목표):
+             company_name_match 0.25 — 채용 사이트명("점핏")을 회사명으로, "(주)" 미제거
+             job_title_match 0.50 — "고(故)팀장 (프론트엔드&백엔드) 개발자" 같은 오추출
+             ※ 평가 4건 기준이라 수치 변동 큼, 본 수집 후 eval 50~60건으로 재측정 필요
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #014 학습 데이터에 base64 이미지 문자열이 섞임
+────────────────────────────────────────────────────────────────
+발생 위치  : finetune/data_collector.py (Tavily raw_content) → 학습 입력
+증상       : 점핏 공고 원문에 "![DeepLearning](data:image/png;base64,iVBORw0...)"
+             같은 이미지 데이터와 마크다운 링크 URL 이 그대로 포함됨
+원인       : Tavily 의 raw_content 는 페이지를 마크다운으로 변환한 것이라
+             기술스택 아이콘 이미지가 base64 로 인라인됨
+해결 방법  : agents/job_parser.clean_posting_text() 추가 — data URI 이미지 제거,
+             [텍스트](URL) → 텍스트, 연속 빈 줄 정리.
+             build_local_messages / parse_posting_structured / job_parser_node 가
+             모두 이 함수를 거치므로 학습·추론 입력 정제가 항상 동일함.
+             기존 파일럿 44건은 라벨 재사용, 입력만 재생성 (추가 비용 없음)
+해결 이유  : 노이즈는 토큰만 낭비하고 학습 신호가 없음. 정제 규칙을 학습 쪽에만
+             넣으면 추론 입력과 형식이 어긋나므로 공통 함수로 둠
+현재 상태  : 해결 완료 — 입력 글자수 15% 감소, base64 잔존 0건
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #013 Ollama 로컬 모델이 실행 중이어도 항상 "사용 불가" 판정
+────────────────────────────────────────────────────────────────
+발생 위치  : llm/local_llm.py is_available()
+증상       : (잠재 버그) Ollama 에 모델이 있어도 LLMRouter 가 항상 OpenAI 를 선택
+원인       : 설치된 ollama-python 0.6 은 모델 목록을 객체(.model 속성)로 반환하는데
+             코드는 예전 형식 m["name"] 으로 접근 → KeyError → except 에서 False
+             (Ollama 를 설치하지 않은 상태라 그동안 드러나지 않았음)
+해결 방법  : 신버전(.model)·구버전(dict "name") 모두 처리
+해결 이유  : 파인튜닝 모델을 Ollama 로 연결하는 Phase 4 의 전제 조건이라
+             실제 ListResponse 객체로 재현·검증 후 수정
+현재 상태  : 해결 완료 (가짜 클라이언트로 신/구 형식 모두 테스트)
+함께 수정  : Ollama 기본 컨텍스트 2048 토큰 → 공고(최대 ~3,200 토큰)가 잘림.
+             LocalLLM 요청에 num_ctx=8192, Modelfile 에도 PARAMETER num_ctx 8192
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #012 Streamlit 사이드바 메뉴가 한 박자 늦게 이동 + 이전 결과 잔존
+────────────────────────────────────────────────────────────────
+발생 위치  : frontend/app.py render_sidebar(), 공고 추천 "이 공고로 이력서 생성"
+증상       : 메뉴를 바꿔도 이전 페이지가 표시되는 경우가 있음
+             (AppTest 로 페이지 전환 시 '분석 & 이력서' 선택 → '채용공고 입력' 화면)
+             공고 추천에서 다른 공고로 이력서 생성 시 이전 공고의 면접 질문·
+             보유/부족 기술이 그대로 남음
+원인       : st.radio(index=session["page"]) 처럼 index 를 매 실행마다 바꾸면
+             Streamlit 이 다른 위젯으로 인식해 선택값이 한 번 늦게 반영됨.
+             결과 초기화 목록에 새로 추가된 필드가 빠져 있었음.
+해결 방법  : 라디오를 key="page_radio" 로 관리, 버튼 이동은 nav_to 플래그를 두고
+             다음 실행에서 위젯 생성 전에 반영. 초기화 목록에 matched/missing_skills,
+             interview_questions 추가
+현재 상태  : 해결 완료 — 5개 페이지 전환 + 버튼 이동 모두 첫 클릭에 정상 (AppTest)
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #011 공고 추천에 커리어 조언 글·목록 페이지가 섞이고 회사명이 깨짐
+────────────────────────────────────────────────────────────────
+발생 위치  : agents/job_recommender.py (POST /recommend, n8n daily_job_alert)
+증상       : "Python 백엔드" 추천 결과 5건 중
+             - 회사명 "(주" ← "[(주)버즈니] ..." 를 정규식이 괄호에서 잘라냄
+             - 회사명 "Ziprecruiter", "Kr" ← 채용 사이트 도메인을 회사명으로 사용
+             - "Is a Backend Developer Python a good career" 같은 커리어 조언 글,
+               "Python 채용공고 400+건" 같은 검색 목록 페이지가 공고로 취급되어
+               적합도 100%/75% 로 상위 랭크
+원인       : Tavily 검색 결과를 전부 채용공고로 가정하고, 회사명은 제목/URL
+             정규식으로만 추출했음
+해결 방법  : - JobRequirements 스키마에 is_job_posting, company_name 추가 →
+               이미 하던 Structured Output 호출 한 번으로 공고 여부 판정·회사명 추출
+             - is_job_posting=false 인 페이지는 랭킹에서 제외
+             - 검색/목록 URL 패턴(/search, /q-, ?query= 등)은 수집 단계에서 제외
+             - 정규식 폴백: (주)/㈜ 제거 후 [] 우선, 채용 사이트 도메인 무시
+해결 이유  : LLM 호출을 추가하지 않고 기존 구조화 호출에 필드 2개만 더해 해결
+현재 상태  : 해결 — 재실행 시 조언 글 제외, 회사명 정상(버즈니, 완드IT, 빅앤딥).
+             목록 URL 필터는 단위 테스트로 확인 (재실행 전 추가)
+남은 과제  : Tavily 대신 원티드/사람인 상세 페이지 직접 수집 시 품질 향상 기대
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #010 BGE Reranker 가 오히려 검색 품질을 떨어뜨림 (RAGAS 측정)
+────────────────────────────────────────────────────────────────
+발생 위치  : rag/reranker.py (BAAI/bge-reranker-v2-m3), RERANKER_ENABLED=true 기본값
+증상       : RAGAS 비교 실험 (평가 프로필 16청크 / 질문 10개, rag/eval_rag.py)
+               설정            context_recall  context_precision  faithfulness
+               vector_top5          0.900            0.911            0.808
+               rerank_top5          0.650            0.817            0.942
+               vector_top3          0.700            0.883            0.842
+             리랭커를 켜면 recall 이 0.90 → 0.65 로 크게 하락
+원인       : 리랭커는 한국어 자체는 이해함 (판다 예문: 관련 0.60 / 무관 -10.3)
+             하지만 "도구 이름 ↔ 분야" 같은 암묵적 연결을 못 함.
+               "머신러닝 모델 개발 경험" vs "XGBoost로 이상 결제 탐지 모델" → -6.2
+               "Python 웹 프레임워크" vs "Django REST Framework" → 탈락
+               "스트리밍 처리" vs "Kafka 이벤트 파이프라인" → 탈락
+             IT 이력서는 기술을 도구 이름으로 적기 때문에, 벡터 검색이 찾은
+             정답 청크를 리랭커가 밀어내는 역효과가 남.
+             (처음엔 transformers 5.x 토크나이저 버그를 의심했으나 토큰화·로짓
+              직접 확인으로 라이브러리 문제가 아님을 확인)
+해결 방법  : RERANKER_ENABLED 기본값 false (settings / .env / .env.example)
+해결 이유  : 측정 근거로 결정. 부수 효과로 1~2GB 모델 로딩 불필요.
+             faithfulness 는 리랭커 쪽이 높지만(0.94) 이는 컨텍스트가 적어
+             답변이 짧아진 영향이고, 정보 누락(recall)이 이력서 품질에 더 치명적.
+현재 상태  : 해결 완료 (기본 비활성). 결과: rag/eval_results/ragas_*.json
+남은 과제  : - 복합 질문("자격증과 인프라 자동화")은 모든 설정에서 recall 0
+               → 쿼리 분해(query decomposition) 검토
+             - answer_relevancy 가 전반적으로 낮음(0.25~0.33): 한국어 답변에서
+               질문 역생성 + 임베딩 유사도 방식의 한계로 보임, 절대값보다
+               설정 간 비교용으로만 사용
+             - 한국어 IT 도메인 리랭커(또는 LLM 리랭킹) 재실험
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #009 RAG 평가 스크립트가 실제 프로필 DB 를 덮어씀
+────────────────────────────────────────────────────────────────
+발생 위치  : rag/eval_rag.py, rag/vectorstore.py _get_client()
+증상       : python -m rag.eval_rag 실행 후 chroma_db/ 의 실제 프로필이 삭제되고
+             평가용 가상 프로필(이영희, 16청크)로 바뀜
+원인       : 2가지 버그가 겹침
+  1) 스크립트 상단에서 os.environ["CHROMA_PERSIST_DIR"] = 임시경로 로 바꿨지만,
+     `python -m rag.eval_rag` 는 rag/__init__.py 를 먼저 import 하고 그 안에서
+     config.settings 가 이미 생성돼 있어서 환경변수 변경이 무시됨
+  2) VectorStore 의 Chroma 클라이언트 싱글톤이 "첫 번째 경로" 하나만 저장해서,
+     나중에 VectorStore(persist_dir=다른경로) 를 줘도 첫 경로를 그대로 사용
+해결 방법  : - _get_client 를 경로별 딕셔너리 캐시로 변경
+             - ProfileLoader(vectorstore=...) 로 저장소를 주입할 수 있게 변경
+             - eval_rag 는 임시 경로 VectorStore 를 명시적으로 생성해 사용,
+               실제 DB 경로와 같으면 즉시 중단하는 가드 추가
+해결 이유  : "import 순서에 의존하는 환경변수 트릭" 은 실행 방식(-m / 직접 실행)에
+             따라 깨짐. 의존성을 명시적으로 넘기는 방식이 안전함.
+현재 상태  : 해결 완료 — 재실행 시 실제 DB 체크섬 변화 없음 확인.
+             덮어써진 DB 는 직전 상태(홍길동 테스트 프로필)로 복원
+재발 방지  : 데이터를 지우는 스크립트는 실행 전후 대상 경로를 반드시 검증
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #008 RAG 다중 쿼리가 같은 청크만 반환 — 프로젝트 경험 누락
+────────────────────────────────────────────────────────────────
+발생 위치  : agents/rag_retriever.py, agents/job_recommender.py
+증상       : 프로필에 "LangGraph 기반 이력서 생성 AI 에이전트 개발" 프로젝트가
+             있는데도 적합도 분석에서 'LLM 서비스 개발 경험' 이 missing 으로
+             판정되고, 이력서에 프로젝트 섹션이 빠짐
+원인       : 다각도 쿼리 4개가 각각 k=3 으로 검색하지만 모두 같은 상위 3개
+             (요약/기술/경력)를 반환 → 합집합도 3개. 프로젝트 청크는
+             어떤 쿼리에서도 상위 3위 안에 들지 못해 LLM 에 전달되지 않음.
+             전체 청크가 5개뿐인 작은 프로필에서도 검색으로 걸러내고 있었음.
+해결 방법  : 청크 12개 이하인 작은 프로필은 검색 없이 전체를 컨텍스트로 사용
+             (SMALL_PROFILE_CHUNKS), 큰 프로필은 결과 상한을 5 → 8 로 상향.
+             공고 추천(job_recommender)도 같은 규칙 적용.
+해결 이유  : RAG 의 목적은 토큰 절약과 관련 정보 선별인데, 한 장짜리 이력서는
+             전체를 넣어도 1~2천 토큰 수준이라 걸러낼 이유가 없음.
+             오히려 검색이 정보를 잃게 만드는 역효과였음.
+현재 상태  : 해결 완료 — 재테스트 시 'LLM 서비스 개발 경험' matched,
+             이력서에 LangGraph 프로젝트 섹션 생성 확인
+재발 방지  : RAGAS context_recall 로 검색 누락을 수치로 측정 (Phase 3-2)
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #007 이력서에 가짜 회사·수치 생성 (환각) — 원인은 RAG 청킹 버그
+────────────────────────────────────────────────────────────────
+발생 위치  : rag/profile_loader.py _split_by_sections() → agents/resume_writer.py
+증상       : 생성된 이력서에 사실이 아닌 내용이 들어감
+             - 지원 회사(테스트컴퍼니)가 지원자의 이전 직장으로 기재
+             - 원문에 없는 수치 (응답시간 30%, 쿼리 25%, 배포 40% 등)
+             - 보유 근거가 없는 Kubernetes/Kafka 가 핵심 기술에 포함
+             - 프롬프트의 few-shot 예시 문장이 지원자 경력으로 그대로 복사됨
+원인       : 3가지가 겹침
+  1) [근본 원인] 섹션 분할 시 헤더로 인식된 줄을 버림.
+     "Experience: 스타트업 A ... 40% 개선" 처럼 헤더와 내용이 한 줄이면
+     내용 전체가 소실됨. 실제 저장된 청크는 이름/기술목록/빈 항목뿐이라
+     RAG 검색 결과에 경력이 전혀 없었음 → LLM 이 빈칸을 지어냄.
+     Streamlit 입력 폼의 '자기소개', '학력' 도 같은 이유로 저장 안 됐음.
+  2) 프롬프트가 수치를 강요함: writer "모든 경험은 동사+수치+결과",
+     reviewer "수치 없는 항목은 숫자로 보강", "누락 키워드를 추가"
+  3) few-shot 예시가 실제 지원 분야(백엔드)와 같아 복사되기 쉬웠음
+해결 방법  :
+  1) 헤더 줄도 섹션 본문에 포함, 빈 값(빈 리스트/문자열)은 청크에서 제외
+  2) writer/reviewer 에 사실성 규칙 추가 (원문에 없는 회사·기간·수치 금지,
+     지원 회사를 경력으로 쓰지 말 것), reviewer 에 missing_skills 전달
+  3) few-shot 을 다른 분야(물류/정산)의 "원문 → 변환" 형태로 교체,
+     "내용 복사 금지" 명시
+  + fit_analyzer 를 Structured Output 으로 바꿔 matched/missing_skills 산출
+해결 이유  : 프롬프트만 고쳐도 일부 개선됐지만(2차 테스트) 여전히 회사·수치를
+             지어냄. 검색 결과를 직접 출력해 보고서야 경력 청크 자체가 없다는
+             근본 원인을 발견. "LLM 환각은 먼저 입력 컨텍스트부터 의심"
+현재 상태  : 해결 완료 — 재테스트 시 실제 회사(스타트업 A 2022~2025)와
+             실제 수치(40%, 30%)만 사용, 미보유 기술은 보완 계획에만 언급
+재발 방지  : 이 수정 이전에 등록한 프로필은 경력이 빠져 있으므로 재등록 필요
+             프로필 로더 수정 시 저장된 청크를 직접 출력해 확인할 것
+
+────────────────────────────────────────────────────────────────
+[2026-10-03] #006 새 PC 실행 시 ModuleNotFoundError: No module named 'dotenv'
+────────────────────────────────────────────────────────────────
+발생 위치  : test_keys.py 실행 (새 PC, 시스템 Python 3.10.6)
+증상       : ModuleNotFoundError: No module named 'dotenv'
+             (test_keys.py 12번째 줄 from dotenv import load_dotenv)
+원인       : 새 환경에서 패키지를 하나도 설치하지 않은 상태.
+             시스템 Python에는 pip 기본 패키지 외에 아무것도 없었음.
+해결 방법  : 프로젝트 전용 가상환경 생성 후 전체 설치
+             1) python -m venv .venv
+             2) .venv\Scripts\python -m pip install -r requirements.txt
+                -c constraints.txt   (constraints.txt 내용: openai==1.84.0)
+             3) .venv\Scripts\python -m playwright install chromium
+해결 이유  : 시스템 Python에 직접 설치하면 다른 프로젝트와 버전이
+             섞임. .venv는 .gitignore 대상이라 저장소도 깨끗하게 유지됨.
+             constraints로 openai를 고정한 이유: requirements.txt에는
+             openai>=1.40.0 으로만 적혀 있어 #005 문제가 재발할 수 있음.
+현재 상태  : 해결 완료 (openai 1.84.0, torch 2.14.1, streamlit 1.65.0,
+             langgraph 1.0.1, chromadb 1.5.9 설치 / Streamlit 정상 기동)
+재발 방지  : 실행은 항상 .venv 의 Python 사용 (.venv\Scripts\activate)
+             requirements.txt 에 openai==1.84.0 직접 명시 완료 (2026-10-03)
+             → 이제 constraints 없이 pip install -r requirements.txt 만으로 충분
 
 ────────────────────────────────────────────────────────────────
 [2026-10-02] #005 httpx2 / openai 버전 충돌 — TypeError: process() takes no keyword arguments
@@ -180,46 +441,55 @@ Step 6. 사용자가 이력서를 다운로드하거나 수정 요청 가능
 2. 현재 구현된 기능 (스캐폴딩 완료)
 ================================================================
 
-[완료] 기본 뼈대 코드 생성 (스캐폴딩)
+[완료] 핵심 로직 구현
 --------------------------------------
-모든 모듈의 클래스/함수 스텁이 작성된 상태.
-실제 비즈니스 로직은 아직 채워야 함.
+초기 스캐폴딩 이후 아래 모듈들의 실제 로직이 모두 구현됨.
+(2026-10-03 코드 리뷰로 확인. 이전 문서의 '스텁' 표기는 오래된 정보였음)
+LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
+초기 설계의 흔적이며 llm/claude_client.py 는 OpenAIClient 의 별칭일 뿐.
 
 [완료] agents/ - LangGraph 에이전트 파이프라인
 ----------------------------------------------
 - state.py       : 전체 에이전트 공유 상태(GoodJobState) 정의 완료
 - graph.py       : 5개 노드 + 조건부 라우팅(fit_score < 0.3 → 조기종료) 완료
-- job_parser.py  : 채용공고 → 구조화 JSON 변환 노드 (스텁)
-- rag_retriever  : 벡터 DB에서 관련 경험 검색 노드 (스텁)
+- job_parser.py  : 채용공고 → JobRequirements 구조화 (Structured Output) 완료
+- rag_retriever  : 다각도 쿼리(최대 4개) → 벡터 검색 + Reranker 완료
 - fit_analyzer   : 적합도 점수 + 갭 분석 노드 (프롬프트 작성 완료)
-- resume_writer  : 맞춤 이력서 초안 생성 노드 (스텁)
-- reviewer.py    : 이력서 자기검토 및 개선 노드 (스텁)
+- resume_writer  : 맞춤 이력서 초안 생성 + 스트리밍 버전 완료
+- reviewer.py    : 6항목 체크리스트 자기검토 + 스트리밍 버전 완료
+- job_recommender: 역방향 매칭(키워드 → 공고 수집 → 공고 판정 → 적합도 랭킹) 완료
+- interview_coach: 면접 예상 질문 + 답변 전략 노드 (그래프 6번째 노드) 완료
+- star_converter : 자유 텍스트 경험 → STAR 구조화 완료
+- coverletter_writer: 자소서 문항별 답변 + 글자수 검증 완료
 
 [완료] rag/ - 벡터 검색 시스템
 -------------------------------
 - vectorstore.py   : Chroma DB 연결, CRUD 메서드 완료
-- embeddings.py    : BGE-M3 임베딩 모델 로더 완료
+- embeddings.py    : OpenAI text-embedding-3-small 기본 / BGE-M3 전환 가능 완료
 - profile_loader.py: PDF 파싱 + 딕셔너리 입력 → 청킹 → 저장 완료
 - reranker.py      : BGE Cross-encoder 2단계 재정렬 완료
-- evaluator.py     : RAGAS 품질 평가 완료
+- evaluator.py     : RAGAS 0.4 품질 평가 완료
+- eval_rag.py      : 검색 설정 비교 실험 스크립트 (python -m rag.eval_rag)
 
 [완료] llm/ - LLM 레이어
 ------------------------
-- claude_client.py : OpenAI API 텍스트/비전/스트리밍 완료
+- openai_client.py : OpenAI API 텍스트/비전/스트리밍/Structured Output 완료
+- claude_client.py : 하위 호환용 별칭 (OpenAIClient 그대로 사용)
 - local_llm.py     : Ollama 로컬 LLM 클라이언트 완료
 - router.py        : 작업 복잡도별 자동 LLM 라우팅 완료
 
 [완료] search/ - 검색 및 크롤링
 --------------------------------
-- company_searcher.py : Tavily API 회사/공고 검색 (스텁)
-- image_parser.py     : OpenAI Vision (gpt-4o)으로 이미지 → 회사명 추출 (스텁)
-- job_scraper.py      : Playwright 채용사이트 크롤링 (스텁)
+- company_searcher.py : Tavily 회사/공고 검색 + gpt-4o-mini 요약 완료
+- image_parser.py     : OpenAI Vision (gpt-4o) 회사명/공고 추출 완료
+- job_scraper.py      : Playwright 원티드/사람인/잡코리아 크롤링 완료
+- pipeline.py         : 이미지/회사명 → 공고 텍스트 통합 파이프라인 완료
 
 [완료] finetune/ - sLLM 파인튜닝
 ---------------------------------
 - train.py        : Unsloth + LoRA 학습 파이프라인 완료
-- inference.py    : 파인튜닝 모델 추론 (스텁)
-- data_collector.py: 학습 데이터 수집/생성 (스텁)
+- inference.py    : LoRA 체크포인트 추론 코드 완료 (실행 이력 없음)
+- data_collector.py: Tavily 수집 + 합성 데이터 생성 코드 완료 (실행 이력 없음)
 - mlflow_logger.py : MLflow 실험 추적 완료
 
 [완료 - Phase 2] frontend/ - Streamlit UI
@@ -228,17 +498,22 @@ Step 6. 사용자가 이력서를 다운로드하거나 수정 요청 가능
   · 페이지 1: 프로필 등록 (PDF 업로드 or 직접 입력 → 벡터 DB 저장)
   · 페이지 2: 공고 입력 (텍스트 붙여넣기 / 이미지 분석 / Tavily 자동 검색)
   · 페이지 3: 분석 & 이력서 (노드별 실시간 진행 표시 + 결과 렌더링)
+  · 페이지 4: 공고 추천 (job_recommender 결과 카드 UI)
   · 기술 매칭 시각화: 필수/우대 기술을 보유/미보유로 색상 구분
   · 이력서 초안 vs 최종본 탭 비교 + Markdown 다운로드
   · 커스텀 CSS로 다크 사이드바 + 카드 레이아웃 적용
-  실행: python -m streamlit run frontend/app.py
+  실행: .venv\Scripts\python -m streamlit run frontend/app.py
+        (.streamlit/config.toml 로 localhost 전용 바인딩)
 
 [완료] api/ - FastAPI 서버
 --------------------------
 - main.py             : 앱 팩토리 + CORS + LangSmith 자동 초기화 완료
-- routes/profile.py   : 프로필 업로드/입력 엔드포인트 (스텁)
-- routes/company.py   : 회사 검색/이미지 분석 엔드포인트 (스텁)
-- routes/resume.py    : 이력서 생성/조회 엔드포인트 (스텁)
+- routes/profile.py   : PDF 업로드 / 직접 입력 / 상태 조회 완료
+- routes/company.py   : 회사 검색 / 이미지 분석 완료
+- routes/resume.py    : graph.app.invoke() 이력서 생성 / 조회 완료
+                        (URL 입력 시 Playwright 수집 → httpx 폴백, 세션은 Redis/메모리)
+- session_store.py    : Redis 세션 저장소 + 메모리 폴백
+- routes/recommend.py : POST /recommend 공고 추천 완료
 
 [완료] config/ - 설정 관리
 ---------------------------
@@ -248,8 +523,9 @@ Step 6. 사용자가 이력서를 다운로드하거나 수정 요청 가능
 [완료] 인프라
 -------------
 - .env.example     : 모든 환경변수 템플릿 완료
-- requirements.txt : 전체 패키지 목록 완료
-- docker-compose.yml: api + frontend + redis + mlflow 구성 완료
+- requirements.txt : 전체 패키지 목록 (openai==1.84.0 고정)
+- requirements.lock.txt: 검증된 전체 버전 고정본 (pip freeze, 2026-10-03)
+- docker-compose.yml: api + frontend + redis + mlflow 구성 (Dockerfile 미작성)
 - .gitignore       : 민감 파일/대용량 파일 제외 설정 완료
 
 
@@ -332,7 +608,7 @@ Step 6. 사용자가 이력서를 다운로드하거나 수정 요청 가능
     → 해결: 초기값 조정 가능 (.env)
 
 ────────────────────────────────────────────────────────────────
-3-4. OpenAI API (Anthropic)
+3-4. OpenAI API
 ────────────────────────────────────────────────────────────────
 선택 이유
   - 복잡한 분석(적합도 평가)과 긴 텍스트 생성(이력서)에 최적
@@ -351,7 +627,7 @@ Step 6. 사용자가 이력서를 다운로드하거나 수정 요청 가능
 
 예상 문제
   - API 키 만료 또는 한도 초과
-    → 해결: settings.has_anthropic_key 체크 후 로컬로 폴백
+    → 해결: settings.has_openai_key 체크 후 로컬로 폴백
   - Rate Limit 초과 (429 에러)
     → 해결: exponential backoff 재시도 로직 추가 필요
   - 프롬프트가 길어질수록 비용 급증
@@ -371,17 +647,17 @@ Step 6. 사용자가 이력서를 다운로드하거나 수정 요청 가능
   - 파인튜닝 후 커스텀 모델 교체 용이
 
 단점
-  - Claude에 비해 품질 낮음 (7B vs 수백B)
+  - GPT-4o에 비해 품질 낮음 (7B vs 수백B)
   - Ollama 서버를 별도로 실행해야 함
   - 처음 모델 로딩 시 약 10~30초 소요
 
 예상 문제
   - Ollama 서버 미실행 시 전체 로컬 처리 실패
-    → 해결: LLMRouter가 자동으로 Claude로 폴백
+    → 해결: LLMRouter가 자동으로 OpenAI로 폴백
   - 한국어 품질이 영어보다 낮을 수 있음
     → 해결: 파인튜닝으로 한국어 채용공고 특화 가능
   - 14B 모델을 CPU 오프로딩으로 실행 시 속도 매우 느림
-    → 해결: 로컬 작업은 7B로 제한, 복잡한 작업은 Claude 사용
+    → 해결: 로컬 작업은 7B로 제한, 복잡한 작업은 OpenAI 사용
 
 ────────────────────────────────────────────────────────────────
 3-6. Playwright (웹 크롤링)
@@ -419,7 +695,7 @@ Step 6. 사용자가 이력서를 다운로드하거나 수정 요청 가능
 장점
   - Unsloth: 4bit 양자화로 8GB VRAM에서 7B 파인튜닝 가능
   - LoRA: 전체 가중치가 아닌 어댑터만 학습 → 빠르고 저장공간 적음
-  - 파인튜닝 후 특정 태스크 품질이 Claude급으로 향상 가능
+  - 파인튜닝 후 특정 태스크 품질이 GPT-4o급으로 향상 가능
 
 단점
   - 학습 데이터 수집 및 정제에 많은 시간 필요
@@ -506,7 +782,7 @@ Step 6. 사용자가 이력서를 다운로드하거나 수정 요청 가능
 
 예상 문제
   - Redis 연결 실패 시 앱 전체 에러로 이어질 수 있음
-    → 해결: 연결 실패 시 인메모리로 자동 폴백 로직 추가 필요
+    → 해결: api/session_store.py 에서 연결 실패 시 인메모리로 자동 폴백 (2026-10-03 구현)
 
 ────────────────────────────────────────────────────────────────
 [B] RAGAS (RAG 품질 평가)
@@ -695,19 +971,19 @@ STAR 경험 구조화             ✅    ❌        TIO 핵심 기능 - 추가 �
 Phase 1. 핵심 기능 구현 (우선순위 최고)
 ────────────────────────────────────────────────────────────────
 
-[ ] 1-1. RAG 시스템 완성
+[코드 완료] 1-1. RAG 시스템 완성
     - rag/profile_loader.py : PDF → 청크 분할 → Chroma 저장 구현
     - rag/embeddings.py     : BGE-M3 실제 임베딩 호출 구현
     - rag/reranker.py       : 이미 완성, 에이전트와 연결 필요
     - 테스트: 샘플 이력서 PDF 업로드 → 벡터 검색 확인
 
-[ ] 1-2. 채용공고 수집 파이프라인 구현
+[코드 완료] 1-2. 채용공고 수집 파이프라인 구현
     - search/company_searcher.py : Tavily API 실제 호출 구현
     - search/image_parser.py     : OpenAI Vision (gpt-4o) 이미지 분석 구현
     - search/job_scraper.py      : 사람인/원티드 크롤링 구현
     - 테스트: "카카오" 입력 → 채용공고 텍스트 수집 확인
 
-[ ] 1-3. LangGraph 노드 로직 구현
+[코드 완료] 1-3. LangGraph 노드 로직 구현
     - agents/job_parser.py   : 채용공고 → JSON 추출 프롬프트 작성
     - agents/rag_retriever.py: VectorStore + Reranker 연결
     - agents/fit_analyzer.py : 이미 완성 (프롬프트 포함)
@@ -715,7 +991,9 @@ Phase 1. 핵심 기능 구현 (우선순위 최고)
     - agents/reviewer.py     : 자기검토 프롬프트 작성
     - 테스트: graph.app.invoke() 엔드투엔드 실행 확인
 
-[ ] 1-4. FastAPI 엔드포인트 로직 연결
+[완료] 1-4. FastAPI 엔드포인트 로직 연결
+    (2026-10-03 실행 검증: /profile/manual, /profile/status, /resume/generate
+     텍스트·URL 입력, /resume/{id} 정상 / /company/*, /profile/upload 미검증)
     - routes/profile.py  : ProfileLoader 호출 구현
     - routes/company.py  : CompanySearcher + ImageParser 호출 구현
     - routes/resume.py   : LangGraph graph.app.invoke() 호출 구현
@@ -725,7 +1003,7 @@ Phase 1. 핵심 기능 구현 (우선순위 최고)
 Phase 2. UI 및 사용성 완성
 ────────────────────────────────────────────────────────────────
 
-[ ] 2-1. Streamlit UI 완성
+[완료] 2-1. Streamlit UI 완성
     - 프로필 등록 페이지: PDF 업로드 + 직접 입력 폼
     - 회사 입력 페이지: 텍스트 + 이미지 업로드
     - 결과 페이지: 적합도 점수 시각화 + 이력서 미리보기
@@ -760,58 +1038,97 @@ Phase 2-B. TIO 벤치마크 기반 신규 기능 (선택)
                                   순위별 카드 UI, 기술 배지, 상세 분석 expander
                                   "이 공고로 이력서 생성" 버튼 → 분석 탭 연동
 
-[ ] 2-B-1. STAR 경험 구조화
-    - agents/star_converter.py  : STAR 변환 노드 신규 작성
-    - frontend/app.py           : 프로필 등록 탭 STAR 변환 UI 추가
-    - rag/profile_loader.py     : STAR 포맷 저장 옵션 추가
+[완료 2026-10-03] 2-B-1. STAR 경험 구조화
+    - agents/star_converter.py  : 자유 텍스트 → STAR (Structured Output, gpt-4o-mini)
+                                  여러 경험 자동 분리, 원문에 없는 정보는 "(보완 필요)" +
+                                  사용자에게 되물을 질문(missing_info) 생성 — 지어내지 않음
+    - frontend/app.py           : 프로필 등록 페이지 하단 STAR 섹션 (변환 → 확인 → 추가 저장)
+    - rag/profile_loader.py     : load_star_experiences() — 경험 1개 = 청크 1개로 추가 저장
 
-[ ] 2-B-2. 면접 예상 질문 생성
-    - agents/interview_coach.py : 면접 질문 + 답변 전략 생성 노드
-    - agents/state.py           : interview_questions 필드 추가
-    - agents/graph.py           : reviewer 이후 선택 실행 노드 연결
-    - frontend/app.py           : 결과 탭 면접 코치 섹션 추가
+[완료 2026-10-03] 2-B-2. 면접 예상 질문 생성
+    - agents/interview_coach.py : 7문항 (기술/경험/약점 보완/컬처핏) + 질문 의도 + 답변 전략
+                                  이력서의 실제 수치를 인용, missing_skills 로 약점 질문 생성
+    - agents/state.py           : interview_questions, generate_interview 필드 추가
+    - agents/graph.py           : reviewer → interview_coach → END (generate_interview=False 시 건너뜀)
+    - api/routes/resume.py      : 응답에 interview_questions / matched·missing_skills 추가
+    - frontend/app.py           : 결과 화면 면접 질문 섹션 + Markdown 다운로드
 
-[ ] 2-B-3. 자소서 문항별 작성 모드
-    - agents/coverletter_writer.py : 문항 전용 생성 노드
-    - frontend/app.py              : "자소서 문항" 탭 추가
+[완료 2026-10-03] 2-B-3. 자소서 문항별 작성 모드
+    - agents/coverletter_writer.py : 문항 의도 분석 + 답변 작성 (Structured Output)
+                                     글자수는 코드로 직접 계산(공백 포함/제외),
+                                     제한 초과 시 줄여 쓰기 최대 2회 재요청
+    - frontend/app.py              : "자소서 문항" 페이지 (글자수 지표, 직접 수정, txt 저장)
 
 ────────────────────────────────────────────────────────────────
 Phase 3. 품질 고도화
 ────────────────────────────────────────────────────────────────
 
-[ ] 3-1. 프롬프트 엔지니어링 최적화
-    - Few-shot 예시 추가 (좋은 이력서 bullet point 예시 포함)
-    - Chain-of-thought 적용 (적합도 분석 근거 단계별 추론)
-    - Structured Output으로 JSON 파싱 안정성 강화
+[완료 2026-10-03] 3-1. 프롬프트 엔지니어링 최적화
+    - fit_analyzer: Structured Output(FitAnalysis) + reasoning 필드 먼저 작성(CoT)
+                    + 점수 루브릭(0.85~1.0 / 0.65~ / ...) + matched/missing_skills 산출
+    - resume_writer: few-shot "원문 → 변환" 예시 (다른 분야, 복사 금지 명시)
+                     + 사실성 규칙 (원문에 없는 회사·기간·수치 금지)
+    - reviewer: "숫자로 보강" 지시 제거 (환각 유도), missing_skills 추가 금지
+    - 결과 화면 기술 매칭: 검색 결과 유무가 아닌 fit_analyzer 판정 사용
+      (기존엔 프로필만 있으면 모든 기술이 ✓ 로 표시되던 버그)
+    - 관련 트러블슈팅: #007, #008
 
-[ ] 3-2. RAGAS로 RAG 품질 측정 및 최적화
-    - 샘플 QA 쌍 10~20개 생성
-    - evaluator.py 실행하여 현재 점수 측정
-    - top-k, 청크 크기, 청크 겹침 파라미터 조정하며 점수 비교
+[완료 2026-10-03] 3-2. RAGAS로 RAG 품질 측정 및 최적화
+    - rag/evaluator.py : ragas 0.4 API 로 재작성 (recall/precision/faithfulness/relevancy)
+    - rag/eval_rag.py  : 평가 프로필 16청크 + QA 10쌍, 임시 DB 사용, 설정 비교
+                         실행: python -m rag.eval_rag
+    - 결과: vector_top5 recall 0.90 > vector_top3 0.70 > rerank_top5 0.65
+      → 리랭커 기본 비활성 (#010). 결과 파일 rag/eval_results/
+    - 남은 실험: 청크 크기/겹침, 복합 질문 쿼리 분해
 
-[ ] 3-3. n8n 자동화 연결
-    - 매일 키워드로 채용공고 자동 수집 워크플로우
-    - 새 공고 발견 시 적합도 자동 분석
-    - 이메일/슬랙으로 결과 알림
+[완료 (n8n 앱 내 실행은 미검증)] 3-3. n8n 자동화 연결
+    - api/routes/recommend.py : POST /recommend 신규 (공고 추천을 API 로 노출)
+    - n8n/workflows/ : profile_ingest_webhook / daily_job_alert / resume_generation_pipeline
+    - 평일 08:00 키워드별 추천 → Slack 다이제스트, 이력서 생성 결과 Slack 알림
+    - 구조·JS 문법·실제 API 응답으로 다이제스트 생성까지 검증 (n8n/workflows/README.md)
 
 ────────────────────────────────────────────────────────────────
 Phase 4. sLLM 파인튜닝
 ────────────────────────────────────────────────────────────────
 
-[ ] 4-1. 학습 데이터 수집
-    - data_collector.py 구현: 공개 채용공고 수집 (목표 1,000건)
-    - OpenAI API로 합성 데이터 생성: 공고 → 구조화 JSON 쌍
-    - 데이터 정제 및 Alpaca 포맷 변환
+※ 실행 환경 결정 (2026-10-03): Google Colab (T4 16GB)
+  이 PC: RTX 2060 SUPER 8GB / torch CPU 빌드 / WSL2·Ollama 미설치
+  → Unsloth(Triton) 의 Windows 설치 위험을 피해 Colab 에서 학습, 결과(GGUF)만 로컬 Ollama 로.
+※ 학습 목표 변경: "공고 → 이력서" 합성 쌍 폐기 → "공고 원문 → JobRequirements JSON"
+  (프로필 없이 이력서를 쓰게 학습하면 경력 지어내기를 학습함 — #007 과 같은 문제)
 
-[ ] 4-2. 파인튜닝 실행
-    - WSL2 또는 Google Colab에서 train.py 실행
-    - MLflow로 실험 기록
-    - learning_rate, LoRA rank 등 하이퍼파라미터 탐색
+[진행 중] 4-1. 학습 데이터 수집
+    - finetune/data_collector.py: Tavily 실제 공고(raw_content) → gpt-4o 라벨(teacher)
+      → agents.job_parser.build_local_messages() 로 실제 추론과 같은 채팅 형식 저장
+    - 비공고 페이지는 음성 예시로 최대 15% 유지, URL 단위 train/eval 분할
+    - 파일럿 완료: 44건 (공고 36 / 비공고 8, 직무 8종), 라벨 품질 표본 확인
+      토큰 길이 max 3,178 (Qwen 토크나이저 실측), 정답 JSON max 907 토큰
+    - 스키마 개선 후 재라벨링: 기술명 짧은 이름 규칙 (#015)
+    - [완료] 본 수집: 299건 수집 후 Tavily 한도로 중단 (#017)
+      → 중복·비공고 정리 후 최종 231건 (공고 197 / 비공고 34, 직무 22종)
+         train 208 / eval 23
+    - 베이스 모델 기준선 (Ollama qwen2.5:7b, 이 PC GPU, eval 23건):
+        json_valid 1.000 / is_job_posting 0.957 / required_skills_f1 0.621
+        preferred_skills_f1 0.603 / keywords_f1 0.500 / experience_years 0.826
+        job_title 0.870 / company_name 0.957 / 8.5초/건
+      → 파인튜닝 목표: 기술·키워드 추출(0.50~0.62)과 경력 연수(0.83) 개선
+        (회사명·직무명은 프롬프트 개선만으로 0.87~0.96 — 4건 평가 때의 0.25/0.50 은 표본 오차)
+    - [ ] 데이터 추가: Tavily 한도 해제 후 --append 로 이어서 수집 가능
 
-[ ] 4-3. 파인튜닝 모델 통합
-    - inference.py 구현: 파인튜닝 모델 추론 연결
-    - LLMRouter에 파인튜닝 모델 옵션 추가
-    - OpenAI API 대비 성능 비교 측정
+[준비 완료 / Colab 실행 대기] 4-2. 파인튜닝 실행
+    - finetune/train.py: Qwen2.5-7B-Instruct 4bit + LoRA r16, 응답(JSON)에만 loss,
+      베이스 평가 → 학습 → 파인튜닝 평가 → GGUF q4_k_m 내보내기
+    - finetune/colab_finetune.ipynb + finetune/goodjob_colab.zip (코드+데이터 번들)
+    - finetune/metrics.py: json_valid, 공고판정 정확도, 기술/키워드 F1, 경력·직무·회사명 일치
+    - [ ] Colab 파일럿 실행 (흐름 확인) → [ ] 본 학습 실행
+    - [ ] 하이퍼파라미터 탐색 / MLflow 기록 (본 학습 결과 보고 결정)
+
+[코드 준비 완료] 4-3. 파인튜닝 모델 통합
+    - finetune/ollama/Modelfile (ChatML 템플릿, num_ctx 8192)
+    - settings.PARSE_WITH_LOCAL_LLM: true 면 공고 길이와 무관하게 로컬 파서 우선,
+      실패 시 OpenAI 폴백 (기존엔 로컬 실패 시 빈 결과)
+    - finetune/eval_local.py: Ollama 모델 비교 평가 (베이스 qwen2.5:7b vs goodjob-parser)
+    - [ ] Ollama 설치 → GGUF 등록 → 로컬 평가 → OpenAI 대비 비교
 
 ────────────────────────────────────────────────────────────────
 Phase 5. 배포 및 마무리
@@ -845,6 +1162,8 @@ goodjob/
 ├── .env.example          ← 환경변수 템플릿 (cp 후 .env로 사용)
 ├── .gitignore
 ├── requirements.txt      ← 전체 패키지 목록
+├── requirements.lock.txt ← 검증된 전체 버전 고정본
+├── .streamlit/config.toml← Streamlit 설정 (localhost 전용)
 ├── docker-compose.yml    ← 서비스 전체 실행
 ├── PROJECT_DOCS.txt      ← 이 문서
 │
@@ -855,48 +1174,62 @@ goodjob/
 ├── agents/               ← LangGraph 파이프라인
 │   ├── state.py          ← 공유 상태 TypedDict
 │   ├── graph.py          ← 5노드 StateGraph
-│   ├── job_parser.py     ← [Phase 1 구현 필요]
-│   ├── rag_retriever.py  ← [Phase 1 구현 필요]
+│   ├── job_parser.py     ← 완성 (Structured Output)
+│   ├── rag_retriever.py  ← 완성
 │   ├── fit_analyzer.py   ← 완성 (프롬프트 포함)
-│   ├── resume_writer.py  ← [Phase 1 구현 필요]
-│   └── reviewer.py       ← [Phase 1 구현 필요]
+│   ├── resume_writer.py  ← 완성
+│   ├── reviewer.py       ← 완성
+│   ├── job_recommender.py← 완성 (공고 추천)
+│   ├── interview_coach.py← 완성 (면접 예상 질문)
+│   ├── star_converter.py ← 완성 (STAR 경험 정리)
+│   └── coverletter_writer.py ← 완성 (자소서 문항)
 │
 ├── rag/
 │   ├── vectorstore.py    ← Chroma DB (완성)
-│   ├── embeddings.py     ← BGE-M3 (완성)
-│   ├── profile_loader.py ← [Phase 1 구현 필요]
+│   ├── embeddings.py     ← OpenAI / BGE-M3 (완성)
+│   ├── profile_loader.py ← 완성
 │   ├── reranker.py       ← BGE Reranker (완성)
-│   └── evaluator.py      ← RAGAS 평가 (완성)
+│   ├── evaluator.py      ← RAGAS 평가 (완성)
+│   ├── eval_rag.py       ← 설정 비교 실험 (완성)
+│   └── eval_results/     ← 평가 결과 JSON
 │
 ├── llm/
-│   ├── claude_client.py  ← OpenAI API (완성)
+│   ├── openai_client.py  ← OpenAI API (완성)
+│   ├── claude_client.py  ← openai_client 별칭
 │   ├── local_llm.py      ← Ollama (완성)
 │   └── router.py         ← 자동 라우팅 (완성)
 │
 ├── search/
-│   ├── company_searcher.py ← [Phase 1 구현 필요]
-│   ├── image_parser.py     ← [Phase 1 구현 필요]
-│   └── job_scraper.py      ← [Phase 1 구현 필요]
+│   ├── company_searcher.py ← 완성
+│   ├── image_parser.py     ← 완성
+│   ├── job_scraper.py      ← 완성
+│   └── pipeline.py         ← 완성
 │
 ├── finetune/
 │   ├── train.py          ← Unsloth + LoRA (완성)
-│   ├── inference.py      ← [Phase 4 구현 필요]
-│   ├── data_collector.py ← [Phase 4 구현 필요]
+│   ├── inference.py      ← Colab 학습 직후 LoRA 스팟 체크용
+│   ├── data_collector.py ← 공고 수집 + gpt-4o 라벨링 (파일럿 44건 완료)
+│   ├── metrics.py        ← 파싱 평가 지표
+│   ├── colab_finetune.ipynb ← Colab 학습 노트북
+│   ├── eval_local.py     ← Ollama 모델 로컬 평가
+│   ├── ollama/Modelfile  ← GGUF → Ollama 등록
 │   └── mlflow_logger.py  ← MLflow 추적 (완성)
 │
 ├── api/
 │   ├── main.py           ← FastAPI 앱 (완성)
 │   └── routes/
-│       ├── profile.py    ← [Phase 1 구현 필요]
-│       ├── company.py    ← [Phase 1 구현 필요]
-│       └── resume.py     ← [Phase 1 구현 필요]
+│       ├── profile.py    ← 완성
+│       ├── company.py    ← 완성
+│       ├── resume.py     ← 완성
+│       └── recommend.py  ← 완성
 │
 ├── frontend/
-│   └── app.py            ← Streamlit UI [Phase 2 완성 필요]
+│   ├── app.py            ← Streamlit UI (완성)
+│   └── pdf_exporter.py   ← 이력서 PDF 출력 (완성)
 │
 └── n8n/
-    └── workflows/        ← [Phase 3 연결 필요]
+    └── workflows/        ← 워크플로우 3종 (n8n 앱 내 실행 미검증)
 
 ================================================================
-  상태 범례: 완성 = 로직 구현 완료 / [Phase N 필요] = 스텁 상태
+  상태 범례: 완성 = 로직 구현 완료 / 실행 필요 = 코드는 있으나 실제 실행 이력 없음
 ================================================================

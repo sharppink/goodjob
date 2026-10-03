@@ -1,0 +1,11 @@
+# Streamlit 설정 (streamlit run 을 프로젝트 루트에서 실행할 때 적용)
+
+[server]
+# 이 PC에서만 접속 허용 — 외부에서 접속해 OpenAI 키가 소모되는 것을 방지
+# Docker 컨테이너에서는 --server.address 0.0.0.0 으로 덮어써야 함
+address = "localhost"
+port = 8501
+headless = true
+
+[browser]
+gatherUsageStats = false

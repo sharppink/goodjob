@@ -13,7 +13,6 @@ USE_OPENAI_EMBEDDINGS=false      → 로컬 BGE-M3 사용
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -52,10 +51,11 @@ class EmbeddingModel:
         ----------
         use_openai : bool, optional
             True면 OpenAI API 사용, False면 로컬 BGE-M3 사용.
-            None이면 환경변수 USE_OPENAI_EMBEDDINGS 참조 (기본 True).
+            None이면 settings.USE_OPENAI_EMBEDDINGS 참조 (기본 True).
         """
         if use_openai is None:
-            use_openai = os.getenv("USE_OPENAI_EMBEDDINGS", "true").lower() != "false"
+            from config.settings import settings
+            use_openai = settings.USE_OPENAI_EMBEDDINGS
         self._use_openai = use_openai
         self._model = None  # lazy load
 
@@ -114,9 +114,8 @@ class EmbeddingModel:
     def _openai_embed(self, texts: list[str]) -> list[list[float]]:
         """OpenAI Embeddings API 호출."""
         try:
-            from dotenv import load_dotenv
-            load_dotenv()
-            client = _get_openai_embed_client(os.getenv("OPENAI_API_KEY", ""))
+            from config.settings import settings
+            client = _get_openai_embed_client(settings.OPENAI_API_KEY)
             response = client.embeddings.create(
                 model=OPENAI_EMBEDDING_MODEL,
                 input=texts,

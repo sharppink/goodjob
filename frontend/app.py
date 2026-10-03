@@ -115,10 +115,18 @@ _DEFAULTS: dict[str, Any] = {
     "job_requirements": {},
     "fit_score": None,
     "fit_feedback": "",
+    "matched_skills": [],
+    "missing_skills": [],
     "resume_draft": "",
     "resume_final": "",
     "pipeline_errors": [],
     "pipeline_ran": False,
+    "interview_questions": [],
+    # STAR 경험 정리
+    "star_results": [],
+    # 자소서 문항
+    "cl_answer": "",
+    "cl_meta": {},
     # 공고 추천
     "rec_query": "",
     "rec_running": False,
@@ -129,6 +137,18 @@ _DEFAULTS: dict[str, Any] = {
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
+
+# 이전 실행에서 벡터 DB에 저장해 둔 프로필이 있으면 등록된 것으로 간주
+if "profile_checked" not in st.session_state:
+    st.session_state["profile_checked"] = True
+    try:
+        from rag.vectorstore import VectorStore
+        _count = VectorStore().count()
+        if _count > 0:
+            st.session_state["profile_indexed"] = True
+            st.session_state["profile_chunk_count"] = _count
+    except Exception:
+        pass
 
 
 # ------------------------------------------------------------------ #
@@ -141,14 +161,20 @@ def render_sidebar() -> str:
         st.caption("AI 기반 채용 매칭 & 이력서 생성")
         st.divider()
 
-        pages = ["프로필 등록", "공고 입력", "분석 & 이력서", "공고 추천"]
-        icons  = ["👤",          "🏢",        "🚀",          "🔎"]
+        pages = ["프로필 등록", "공고 입력", "분석 & 이력서", "자소서 문항", "공고 추천"]
+        icons  = ["👤",          "🏢",        "🚀",          "📝",          "🔎"]
+
+        # 버튼으로 이동 요청(nav_to)이 있으면 위젯 생성 전에 반영.
+        # index= 를 매번 바꾸면 위젯이 새로 만들어져 한 박자 늦게 이동하는 문제가 있어 key 로 관리
+        if "nav_to" in st.session_state:
+            st.session_state["page_radio"] = st.session_state.pop("nav_to")
+        st.session_state.setdefault("page_radio", st.session_state["page"])
 
         selected = st.radio(
             "메뉴",
             options=pages,
             format_func=lambda p: f"{icons[pages.index(p)]}  {p}",
-            index=pages.index(st.session_state["page"]),
+            key="page_radio",
             label_visibility="collapsed",
         )
         st.session_state["page"] = selected
@@ -191,7 +217,9 @@ def page_profile() -> None:
             f"✅ 프로필이 등록되어 있습니다 "
             f"({st.session_state['profile_chunk_count']}개 청크)"
         )
-        if not st.button("🔄 프로필 다시 등록"):
+        if not st.toggle("🔄 프로필 다시 등록", value=False):
+            st.markdown("---")
+            _star_section()
             return
 
     tab_pdf, tab_manual = st.tabs(["📄 PDF 업로드", "✏️ 직접 입력"])
@@ -280,6 +308,69 @@ def page_profile() -> None:
                         st.error(f"오류: {exc}")
 
 
+    st.markdown("---")
+    _star_section()
+
+
+def _star_section() -> None:
+    """자유 텍스트 경험 → STAR 구조 변환 후 프로필에 추가."""
+    st.subheader("⭐ STAR 경험 정리")
+    st.caption(
+        "경험을 자유롭게 적으면 AI가 상황(S)·과제(T)·행동(A)·결과(R)로 정리합니다. "
+        "적지 않은 수치나 성과는 만들어내지 않고 '보완 필요'로 표시합니다."
+    )
+    raw = st.text_area(
+        "경험 메모",
+        key="star_raw",
+        height=120,
+        placeholder=(
+            "예) 주문 API가 피크 시간에 자꾸 타임아웃 나서 FastAPI 비동기로 바꾸고 "
+            "N+1 쿼리 고침. 응답속도 40% 정도 빨라짐"
+        ),
+    )
+    if st.button("✨ STAR로 변환", key="star_btn", disabled=not raw.strip()):
+        with st.spinner("STAR 구조로 변환 중…"):
+            try:
+                from agents.star_converter import convert_to_star
+                st.session_state["star_results"] = convert_to_star(raw)
+            except Exception as exc:
+                st.error(f"변환 오류: {exc}")
+
+    stars = st.session_state["star_results"]
+    if not stars:
+        return
+
+    from agents.star_converter import MISSING_MARK
+    for i, star in enumerate(stars, 1):
+        with st.expander(f"{i}. {star['title']}", expanded=True):
+            for key, label in (("situation", "S · 상황"), ("task", "T · 과제"),
+                               ("action", "A · 행동"), ("result", "R · 결과")):
+                value = star.get(key) or MISSING_MARK
+                if value == MISSING_MARK:
+                    st.markdown(f"**{label}** — :orange[{MISSING_MARK}]")
+                else:
+                    st.markdown(f"**{label}** — {value}")
+            if star.get("skills"):
+                st.markdown(
+                    "".join(f"<span class='skill-tag'>{s}</span>" for s in star["skills"]),
+                    unsafe_allow_html=True,
+                )
+            if star.get("missing_info"):
+                st.warning("보완하면 더 좋아요:\n" + "\n".join(f"- {q}" for q in star["missing_info"]))
+
+    st.caption("보완할 내용은 메모에 추가한 뒤 다시 변환하세요. 저장 시 '보완 필요' 항목은 제외됩니다.")
+    if st.button("💾 프로필에 STAR 경험 추가", key="star_save", type="primary"):
+        try:
+            from rag.profile_loader import ProfileLoader
+            count = ProfileLoader().load_star_experiences(stars)
+            st.session_state["profile_indexed"] = True
+            st.session_state["profile_chunk_count"] += count
+            st.session_state["star_results"] = []
+            st.success(f"✅ STAR 경험 {count}개를 프로필에 추가했습니다.")
+        except Exception as exc:
+            st.error(f"저장 오류: {exc}")
+
+
 def _save_profile_success(count: int) -> None:
     if count > 0:
         st.session_state["profile_indexed"] = True
@@ -328,7 +419,7 @@ def page_job_input() -> None:
             f"✅ 채용공고 {len(st.session_state['job_posting_text'])}자 준비 완료"
         )
         if st.button("🚀 분석 & 이력서 생성 시작 →", type="primary"):
-            st.session_state["page"] = "분석 & 이력서"
+            st.session_state["nav_to"] = "분석 & 이력서"
             st.rerun()
 
 
@@ -434,7 +525,7 @@ def page_analysis() -> None:
         with col_l:
             st.info(
                 f"**{st.session_state['company_name'] or '(회사명 미입력)'}** 채용공고를 분석합니다.\n\n"
-                "LangGraph 파이프라인 (5단계) 실행 후 이력서를 생성합니다."
+                "LangGraph 파이프라인 (6단계) 실행 후 이력서와 면접 예상 질문을 생성합니다."
             )
         with col_r:
             run_btn = st.button("▶ 파이프라인 실행", type="primary", use_container_width=True)
@@ -466,6 +557,7 @@ def _run_pipeline() -> None:
         ("fit_analyzer",  "📊 적합도 분석"),
         ("resume_writer", "✍️  이력서 초안 작성"),
         ("reviewer",      "🔎 이력서 검토 & 완성"),
+        ("interview_coach", "🎤 면접 예상 질문"),
     ]
 
     node_status = {n: "wait" for n, _ in NODES}
@@ -493,7 +585,7 @@ def _run_pipeline() -> None:
     try:
         from agents.job_parser    import job_parser_node
         from agents.rag_retriever import rag_retriever_node
-        from agents.fit_analyzer  import fit_analyzer_node
+        from agents.fit_analyzer  import LOW_FIT_THRESHOLD, fit_analyzer_node
         from agents.resume_writer import resume_writer_node
         from agents.reviewer      import reviewer_node
 
@@ -529,9 +621,10 @@ def _run_pipeline() -> None:
 
         fit_score: float = state.get("fit_score") or 0.0
 
-        if fit_score < 0.3:
+        if fit_score < LOW_FIT_THRESHOLD:
             _update_node("resume_writer", "skip", "이력서 작성 (건너뜀)")
             _update_node("reviewer",      "skip", "이력서 검토 (건너뜀)")
+            _update_node("interview_coach", "skip", "면접 질문 (건너뜀)")
             progress_bar.progress(100)
             status_text.warning(
                 f"적합도가 {fit_score:.0%}로 낮아 이력서 생성을 건너뜁니다. "
@@ -547,7 +640,16 @@ def _run_pipeline() -> None:
             progress_bar.progress(75)
 
             st.markdown("**✍️ 이력서 초안 생성 중…**")
-            resume_draft = st.write_stream(stream_resume_writer(state))
+            errors: list = state.setdefault("errors", [])
+            try:
+                resume_draft = st.write_stream(stream_resume_writer(state))
+            except Exception as exc:
+                # resume_writer_node 와 동일한 실패 처리
+                errors.append(f"resume_writer: LLM 오류 – {exc}")
+                resume_draft = ""
+                st.error(f"이력서 초안 생성 실패: {exc}")
+            from agents.resume_writer import strip_markdown_fence
+            resume_draft = strip_markdown_fence(resume_draft or "")
             state["resume_draft"] = resume_draft
 
             _update_node("resume_writer", "done", "이력서 초안 작성")
@@ -558,12 +660,28 @@ def _run_pipeline() -> None:
             status_text.info("AI가 이력서를 교정하는 중…")
 
             st.markdown("**🔎 최종 이력서 교정 중…**")
-            resume_final = st.write_stream(stream_reviewer(state))
-            state["resume_final"] = resume_final
-            # errors는 streaming 경로에서는 노드를 건너뛰므로 기존 유지
-            state.setdefault("errors", [])
+            if not (resume_draft or "").strip():
+                errors.append("reviewer: 검토할 이력서 초안이 없습니다.")
+                resume_final = resume_draft
+            else:
+                try:
+                    resume_final = st.write_stream(stream_reviewer(state))
+                except Exception as exc:
+                    # reviewer_node 와 동일: 실패 시 초안을 그대로 사용
+                    errors.append(f"reviewer: LLM 오류 – {exc}")
+                    resume_final = resume_draft
+                    st.warning(f"이력서 교정 실패 — 초안을 최종본으로 사용합니다: {exc}")
+            state["resume_final"] = strip_markdown_fence(resume_final or "")
 
             _update_node("reviewer", "done", "이력서 검토 & 완성")
+            progress_bar.progress(92)
+
+            # ── 노드 6: interview_coach ──────────────────────────────
+            from agents.interview_coach import interview_coach_node
+            _update_node("interview_coach", "active", "면접 예상 질문")
+            status_text.info("최종 이력서로 면접 예상 질문을 만드는 중…")
+            state = interview_coach_node(state)
+            _update_node("interview_coach", "done", "면접 예상 질문")
             progress_bar.progress(100)
             status_text.success("✅ 파이프라인 완료!")
 
@@ -571,9 +689,12 @@ def _run_pipeline() -> None:
         st.session_state.update({
             "fit_score":        fit_score,
             "fit_feedback":     state.get("fit_feedback", ""),
+            "matched_skills":   state.get("matched_skills", []),
+            "missing_skills":   state.get("missing_skills", []),
             "job_requirements": state.get("job_requirements", {}),
             "resume_draft":     state.get("resume_draft", ""),
             "resume_final":     state.get("resume_final", ""),
+            "interview_questions": state.get("interview_questions", []),
             "pipeline_errors":  state.get("errors", []),
             "pipeline_ran":     True,
         })
@@ -643,18 +764,8 @@ def _render_results() -> None:
         st.markdown("---")
         st.subheader("🔧 기술 스택 분석")
 
-        # 프로필에 저장된 문서에서 기술 키워드 추출 (간단히 profile_loader count 기반)
-        try:
-            from rag.profile_loader import ProfileLoader
-            loader = ProfileLoader()
-            # 각 기술에 대해 검색 결과 있으면 보유로 간주
-            owned_skills: set[str] = set()
-            for sk in req_skills + pref_skills:
-                results = loader.search(sk, k=1)
-                if results:
-                    owned_skills.add(sk)
-        except Exception:
-            owned_skills = set()
+        # fit_analyzer 가 경험에서 근거를 확인한 기술만 보유로 표시
+        owned_skills: set[str] = {s.lower() for s in st.session_state["matched_skills"]}
 
         col_req, col_pref = st.columns(2)
         with col_req:
@@ -662,19 +773,19 @@ def _render_results() -> None:
             if req_skills:
                 badges = "".join(
                     f"<span class='skill-tag'>✓ {s}</span>"
-                    if s in owned_skills
+                    if s.lower() in owned_skills
                     else f"<span class='skill-tag-missing'>✗ {s}</span>"
                     for s in req_skills
                 )
                 st.markdown(badges, unsafe_allow_html=True)
-                matched = sum(1 for s in req_skills if s in owned_skills)
+                matched = sum(1 for s in req_skills if s.lower() in owned_skills)
                 st.caption(f"매칭: {matched}/{len(req_skills)}")
         with col_pref:
             st.markdown("**우대 기술**")
             if pref_skills:
                 badges = "".join(
                     f"<span class='skill-tag'>✓ {s}</span>"
-                    if s in owned_skills
+                    if s.lower() in owned_skills
                     else f"<span class='skill-tag-missing'>✗ {s}</span>"
                     for s in pref_skills
                 )
@@ -732,6 +843,27 @@ def _render_results() -> None:
             else:
                 st.info("초안과 최종본이 모두 있어야 비교가 가능합니다.")
 
+    # ── 면접 예상 질문 ───────────────────────────────────────────────
+    questions = st.session_state["interview_questions"]
+    if questions:
+        st.markdown("---")
+        st.subheader("🎤 면접 예상 질문")
+        st.caption("최종 이력서와 부족한 기술을 바탕으로 생성한 질문입니다. 중요도 순으로 정렬되어 있습니다.")
+        cat_icon = {"기술": "🛠️", "경험": "📌", "약점 보완": "🩹", "컬처핏": "🤝"}
+        for i, q in enumerate(questions, 1):
+            icon = cat_icon.get(q.get("category", ""), "❓")
+            with st.expander(f"{icon} Q{i}. {q['question']}", expanded=(i == 1)):
+                st.markdown(f"**분류** · {q.get('category', '')}")
+                st.markdown(f"**질문 의도** · {q.get('intent', '')}")
+                st.info(f"💡 {q.get('answer_tip', '')}")
+        qa_md = "\n\n".join(
+            f"### Q{i}. {q['question']}\n- 분류: {q.get('category', '')}\n"
+            f"- 의도: {q.get('intent', '')}\n- 답변 전략: {q.get('answer_tip', '')}"
+            for i, q in enumerate(questions, 1)
+        )
+        st.download_button("⬇️ 면접 질문 Markdown", data=qa_md,
+                           file_name=f"interview_{company}.md", mime="text/markdown")
+
     # ── 오류 표시 ────────────────────────────────────────────────────
     if errors:
         with st.expander("⚠️ 파이프라인 경고 / 오류"):
@@ -746,6 +878,71 @@ def _render_results() -> None:
 # ------------------------------------------------------------------ #
 # Page 4: 공고 추천                                                    #
 # ------------------------------------------------------------------ #
+
+def page_coverletter() -> None:
+    st.header("📝 자소서 문항별 작성")
+    st.caption(
+        "자소서 문항과 글자수 제한을 입력하면 등록된 프로필 경험만으로 답변을 작성합니다. "
+        "'공고 입력'에서 분석한 공고가 있으면 함께 반영합니다."
+    )
+
+    if not st.session_state["profile_indexed"]:
+        st.warning("👤 프로필을 먼저 등록해 주세요.")
+        return
+
+    job_req = st.session_state["job_requirements"]
+    if job_req:
+        st.info(f"분석된 공고 반영 중: {st.session_state['company_name'] or '회사'} · "
+                f"{job_req.get('job_title') or '직무'}")
+
+    company = st.text_input("지원 회사", value=st.session_state["company_name"], key="cl_company")
+    question = st.text_area(
+        "자소서 문항",
+        key="cl_question",
+        height=90,
+        placeholder="예) 지원 동기와 입사 후 포부를 작성해 주세요.",
+    )
+    char_limit = st.number_input("글자수 제한 (공백 포함)", min_value=100, max_value=3000,
+                                 value=500, step=50, key="cl_limit")
+
+    if st.button("✍️ 답변 작성", type="primary", disabled=not question.strip()):
+        with st.spinner("문항 의도 분석 및 답변 작성 중…"):
+            try:
+                from agents.coverletter_writer import write_answer
+                result = write_answer(
+                    question=question,
+                    char_limit=int(char_limit),
+                    company_name=company,
+                    job_requirements=job_req or None,
+                )
+                st.session_state["cl_answer"] = result["answer"]
+                st.session_state["cl_meta"] = result
+            except Exception as exc:
+                st.error(f"작성 오류: {exc}")
+
+    meta = st.session_state["cl_meta"]
+    if not st.session_state["cl_answer"]:
+        return
+
+    st.markdown("---")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("공백 포함", f"{meta['chars_with_spaces']}자", f"제한 {meta['char_limit']}자", delta_color="off")
+    c2.metric("공백 제외", f"{meta['chars_without_spaces']}자")
+    c3.metric("제한 준수", "✅" if meta["within_limit"] else "❌ 초과")
+    if not meta["within_limit"]:
+        st.error("줄여 쓰기를 재시도했지만 제한을 넘었습니다. 아래에서 직접 다듬어 주세요.")
+
+    with st.expander("🔍 문항 분석", expanded=True):
+        st.markdown(f"**문항 의도** · {meta['question_intent']}")
+        st.markdown(f"**핵심 메시지** · {meta['key_message']}")
+        if meta.get("used_experiences"):
+            st.markdown("**사용한 경험** · " + " / ".join(meta["used_experiences"]))
+
+    edited = st.text_area("답변 (직접 수정 가능)", value=st.session_state["cl_answer"], height=260)
+    st.caption(f"현재 공백 포함 {len(edited)}자 / 제한 {meta['char_limit']}자")
+    st.download_button("⬇️ 답변 저장 (.txt)", data=edited,
+                       file_name="coverletter_answer.txt", mime="text/plain")
+
 
 def page_job_recommend() -> None:
     st.header("🔎 내 프로필에 맞는 공고 추천")
@@ -855,10 +1052,11 @@ def page_job_recommend() -> None:
                 st.session_state["company_name"] = company or title[:20]
                 st.session_state["job_posting_text"] = match.get("raw_text", "")
                 st.session_state["pipeline_ran"] = False
-                for k in ["fit_score", "fit_feedback", "resume_draft",
-                          "resume_final", "pipeline_errors", "job_requirements"]:
+                for k in ["fit_score", "fit_feedback", "matched_skills", "missing_skills",
+                          "resume_draft", "resume_final", "interview_questions",
+                          "pipeline_errors", "job_requirements"]:
                     st.session_state[k] = _DEFAULTS[k]
-                st.session_state["page"] = "분석 & 이력서"
+                st.session_state["nav_to"] = "분석 & 이력서"
                 st.rerun()
 
             st.divider()
@@ -899,6 +1097,8 @@ def main() -> None:
         page_job_input()
     elif page == "분석 & 이력서":
         page_analysis()
+    elif page == "자소서 문항":
+        page_coverletter()
     elif page == "공고 추천":
         page_job_recommend()
 

@@ -32,11 +32,16 @@ SYSTEM_PROMPT = """\
 당신은 엄격한 이력서 교정 전문가이자 ATS 최적화 전문가입니다.
 이력서 초안을 검토하고 완성도 높은 최종본을 출력합니다.
 개선된 Markdown 이력서만 출력하세요. 설명이나 부연은 불필요합니다.
+전체를 코드블록(```)으로 감싸지 마세요.
+초안에 없는 사실(회사, 기간, 수치, 보유 기술)을 새로 추가하지 마세요.
 """
 
 REVIEW_PROMPT_TEMPLATE = """\
 ### 채용공고 요구사항 (키워드 참조용)
 {job_requirements_text}
+
+### 지원자가 보유 근거가 없는 기술 (핵심 기술·경력에 추가 금지, "보완 계획"에만 언급 가능)
+{missing_skills}
 
 ### 검토할 이력서 초안
 {resume_draft}
@@ -44,16 +49,19 @@ REVIEW_PROMPT_TEMPLATE = """\
 ### 검토 체크리스트 — 아래 항목을 모두 수정하세요:
 
 1. 키워드 매칭
-   - 필수 기술이 이력서 본문에 자연스럽게 포함됐는가
-   - 누락된 키워드는 해당 경험과 연결하여 추가
+   - 초안에 이미 있는 경험 중 공고 키워드와 관련된 표현을 공고 용어로 맞춤
+     (예: 초안에 "Postgres" → 공고 용어 "PostgreSQL")
+   - 보유 근거가 없는 기술은 핵심 기술·경력에 추가하지 않음
 
 2. 문체/어조
    - 수동태 → 능동태 변환 (예: "담당했음" → "주도함")
    - 약한 표현 → 강한 동사 (예: "참여" → "리드", "개발에 기여" → "개발")
 
 3. 수치화
-   - 수치 없는 경험 항목: 구체적인 숫자나 규모로 보강
-     (예: "성능 개선" → "API 응답시간 35% 단축")
+   - 초안에 이미 있는 수치는 유지하고 문장 앞쪽으로 배치
+   - 초안에 없는 숫자는 절대 새로 만들지 말 것 (사실이 아닌 수치는 면접에서 치명적)
+   - 수치가 없는 항목은 규모·범위·결과를 구체적인 말로 보강
+     (예: "성능 개선" → "주문 API 쿼리 구조를 개선해 피크 시간대 타임아웃 해소")
 
 4. 구조/포맷
    - ## 헤더, 불릿 포인트 일관성 확인
@@ -78,6 +86,7 @@ def build_review_prompt(state: GoodJobState) -> tuple[str, str]:
     job_req_text = _format_requirements(job_requirements)
     prompt = REVIEW_PROMPT_TEMPLATE.format(
         job_requirements_text=job_req_text,
+        missing_skills=", ".join(state.get("missing_skills") or []) or "(없음)",
         resume_draft=resume_draft,
     )
     return prompt, SYSTEM_PROMPT
@@ -112,6 +121,7 @@ def reviewer_node(state: GoodJobState) -> GoodJobState:
     job_req_text = _format_requirements(job_requirements)
     prompt = REVIEW_PROMPT_TEMPLATE.format(
         job_requirements_text=job_req_text,
+        missing_skills=", ".join(state.get("missing_skills") or []) or "(없음)",
         resume_draft=resume_draft,
     )
 
@@ -129,6 +139,8 @@ def reviewer_node(state: GoodJobState) -> GoodJobState:
         errors.append(f"reviewer: LLM 오류 – {exc}")
         resume_final = resume_draft  # 실패 시 초안을 그대로 사용
 
+    from agents.resume_writer import strip_markdown_fence
+    resume_final = strip_markdown_fence(resume_final)
     logger.info("[reviewer] 최종 이력서 완성 (%d자).", len(resume_final))
     state["resume_final"] = resume_final
     state["errors"] = errors

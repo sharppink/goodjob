@@ -19,13 +19,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from agents.fit_analyzer import LOW_FIT_THRESHOLD
 from agents.state import GoodJobState
 
 logger = logging.getLogger(__name__)
 
 MAX_CANDIDATES   = 10   # 수집할 최대 공고 수
 MAX_RANKED       = 5    # 반환할 최종 순위 수
-SCORE_THRESHOLD  = 0.3  # 이 점수 미만은 결과에서 제외
+SCORE_THRESHOLD  = LOW_FIT_THRESHOLD  # 이 점수 미만은 결과에서 제외
 
 
 # ------------------------------------------------------------------ #
@@ -74,7 +75,19 @@ def job_recommender_node(state: GoodJobState) -> GoodJobState:
 
     # ── 3. Structured Output으로 공고 구조화 (병렬) ──────────────────
     candidates = _structure_postings(candidates)
-    state["job_candidates"] = candidates
+
+    # 채용공고가 아닌 페이지(커리어 조언 글, 공고 목록/검색 페이지 등) 제외 — PROJECT_DOCS #011
+    postings = [c for c in candidates if c["requirements"].get("is_job_posting")]
+    logger.info("[job_recommender] 채용공고 판정 %d/%d개", len(postings), len(candidates))
+    for c in postings:
+        c["company"] = c["requirements"].get("company_name") or c["company"]
+    state["job_candidates"] = postings
+    candidates = postings
+    if not candidates:
+        errors.append("job_recommender: 검색 결과 중 개별 채용공고로 판정된 페이지가 없습니다.")
+        state["ranked_matches"] = []
+        state["errors"] = errors
+        return state
 
     # ── 4. 각 공고별 적합도 계산 (병렬) ─────────────────────────────
     ranked = _rank_candidates(candidates)
@@ -108,6 +121,8 @@ def _collect_postings(query: str, max_count: int = MAX_CANDIDATES) -> list[dict[
             content = item.get("content", "").strip()
             if len(content) < 100:
                 continue
+            if _is_listing_url(item.get("url", "")):
+                continue  # 검색/목록 페이지는 개별 공고가 아님
             postings.append({
                 "raw_text": content,
                 "title":    item.get("title", ""),
@@ -121,21 +136,37 @@ def _collect_postings(query: str, max_count: int = MAX_CANDIDATES) -> list[dict[
         return []
 
 
+_LISTING_URL_PATTERN = None
+
+
+def _is_listing_url(url: str) -> bool:
+    """검색 결과·공고 목록 페이지 URL 인지 판별합니다 (예: /search, /q-python, ?query=)."""
+    import re
+    global _LISTING_URL_PATTERN
+    if _LISTING_URL_PATTERN is None:
+        _LISTING_URL_PATTERN = re.compile(
+            r"/search(?:[/?]|$)|/q-|/jobs/?(?:\?|$)|[?&](?:q|query|keyword|searchword|stext)=",
+            re.IGNORECASE,
+        )
+    return bool(_LISTING_URL_PATTERN.search(url))
+
+
 def _extract_company(title: str, url: str) -> str:
     """공고 제목/URL에서 회사명을 간단히 추출합니다."""
     import re
-    # URL 도메인에서 회사명 추출 시도
-    domain_match = re.search(r"//(?:www\.)?([^./]+)", url)
-    if domain_match:
-        domain = domain_match.group(1)
-        # 주요 채용 플랫폼은 제외
-        if domain not in ("wanted", "saramin", "jobkorea", "linkedin", "jumpit", "programmers"):
-            return domain.capitalize()
-    # 제목에서 [] 또는 () 안의 회사명 추출
-    bracket = re.search(r"[\[\(]([^\]\)]{2,20})[\]\)]", title)
+    # 법인 표기를 먼저 제거해야 "[(주)버즈니]" 가 "(주" 로 잘리지 않음
+    clean_title = re.sub(r"\(주\)|㈜|주식회사", "", title).strip()
+    # 1순위: 제목의 [] 안 회사명 (예: "[버즈니] Python 백엔드")
+    bracket = re.search(r"\[([^\]]{2,30})\]", clean_title)
     if bracket:
-        return bracket.group(1)
-    return title[:20] if title else "미확인"
+        return bracket.group(1).strip()
+    # 2순위: URL 도메인 (채용 플랫폼·검색 사이트 도메인은 회사명이 아니므로 제외)
+    domain_match = re.search(r"//(?:www\.|kr\.|m\.|careers\.|recruit\.|jobs\.)?([^./]+)", url)
+    job_sites = {"wanted", "saramin", "jobkorea", "linkedin", "jumpit", "programmers",
+                 "indeed", "ziprecruiter", "glassdoor", "incruit", "catch", "rocketpunch"}
+    if domain_match and domain_match.group(1).lower() not in job_sites:
+        return domain_match.group(1).capitalize()
+    return "미확인"
 
 
 def _structure_postings(candidates: list[dict]) -> list[dict]:
@@ -161,7 +192,13 @@ def _rank_candidates(candidates: list[dict]) -> list[dict]:
     from rag.profile_loader import ProfileLoader
     from agents.fit_analyzer import fit_analyzer_node
 
+    from agents.rag_retriever import SMALL_PROFILE_CHUNKS
+    from rag.vectorstore import VectorStore
+
     loader = ProfileLoader()
+    vs = VectorStore()
+    # 작은 프로필은 공고마다 검색하지 않고 전체를 한 번만 불러와 재사용
+    all_docs = vs.get_all_documents() if vs.count() <= SMALL_PROFILE_CHUNKS else None
     ranked = []
 
     for item in candidates:
@@ -170,8 +207,11 @@ def _rank_candidates(candidates: list[dict]) -> list[dict]:
             ranked.append({**item, "fit_score": 0.0, "fit_feedback": "구조화 실패"})
             continue
         try:
-            skills_query = "기술 경험: " + ", ".join(req.get("required_skills", [])[:6])
-            experiences = loader.search(skills_query, k=4)
+            if all_docs is not None:
+                experiences = all_docs
+            else:
+                skills_query = "기술 경험: " + ", ".join(req.get("required_skills", [])[:6])
+                experiences = loader.search(skills_query, k=6)
 
             mock_state: GoodJobState = {
                 "job_requirements":      req,

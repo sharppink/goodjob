@@ -8,6 +8,7 @@ OpenAI로 핵심 내용을 요약합니다.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any, Optional
 
 from config.settings import settings
@@ -37,7 +38,7 @@ class CompanySearcher:
     def search_company_info(self, company_name: str) -> dict[str, Any]:
         """회사 문화, 기술 스택, 팀 정보를 검색합니다."""
         queries = [
-            f"{company_name} 개발팀 기술스택 개발문화 2024",
+            f"{company_name} 개발팀 기술스택 개발문화 {date.today().year}",
             f"{company_name} engineering culture tech stack",
         ]
         results = []
@@ -54,8 +55,8 @@ class CompanySearcher:
     def search_job_postings(self, company_name: str, role: str = "개발자") -> dict[str, Any]:
         """특정 회사의 채용공고를 검색합니다."""
         queries = [
-            f"{company_name} {role} 채용 공고 2024 site:wanted.co.kr OR site:saramin.co.kr",
-            f"{company_name} {role} job posting 2024",
+            f"{company_name} {role} 채용 공고 {date.today().year} site:wanted.co.kr OR site:saramin.co.kr",
+            f"{company_name} {role} job posting {date.today().year}",
         ]
         results = []
         for q in queries:

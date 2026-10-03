@@ -56,8 +56,9 @@ class ProfileLoader:
     ... })
     """
 
-    def __init__(self) -> None:
-        self._vectorstore = VectorStore()
+    def __init__(self, vectorstore: VectorStore | None = None) -> None:
+        # vectorstore 를 넘기면 그 저장소를 사용 (평가 스크립트의 임시 DB 등)
+        self._vectorstore = vectorstore or VectorStore()
         self._vectorstore.initialize()
 
     # ------------------------------------------------------------------ #
@@ -124,6 +125,27 @@ class ProfileLoader:
             text,
             metadata={"source": "manual_input", "type": "dict"},
         )
+
+    def load_star_experiences(self, stars: list[dict[str, Any]]) -> int:
+        """
+        STAR 구조로 변환된 경험을 기존 프로필에 추가합니다 (기존 데이터 유지).
+
+        경험 하나를 청크 하나로 저장해 상황·행동·결과가 함께 검색되도록 합니다.
+
+        Returns
+        -------
+        int
+            저장된 청크 수.
+        """
+        from agents.star_converter import star_to_text
+
+        docs = [star_to_text(s) for s in stars if s.get("title")]
+        if not docs:
+            return 0
+        metas = [{"source": "star", "type": "star", "section": "STAR 경험"} for _ in docs]
+        self._vectorstore.add_documents(docs, metadatas=metas)
+        logger.info("[ProfileLoader] STAR 경험 %d개 저장 완료.", len(docs))
+        return len(docs)
 
     def chunk_and_store(self, text: str, metadata: dict[str, Any] | None = None) -> int:
         """
@@ -234,8 +256,11 @@ class ProfileLoader:
                     body = "\n".join(current_lines).strip()
                     if body:
                         sections.append((current_header, body))
-                current_header = line.strip()
-                current_lines = []
+                # 섹션 이름은 "경력: 스타트업 A ..." 의 앞부분만 사용
+                current_header = line.strip().split(":", 1)[0][:30]
+                # 헤더 줄도 본문에 포함 — "Experience: 스타트업 A ..." 처럼
+                # 헤더와 내용이 한 줄에 있는 경우 내용이 버려지는 버그 방지
+                current_lines = [line]
             else:
                 current_lines.append(line)
 
@@ -294,6 +319,9 @@ class ProfileLoader:
         """딕셔너리를 이력서 형식의 텍스트로 변환합니다."""
         lines: list[str] = []
         for key, value in data.items():
+            # 빈 값(빈 문자열/리스트/딕셔너리, None)은 의미 없는 청크가 되므로 제외
+            if value is None or (isinstance(value, (str, list, dict)) and not value):
+                continue
             heading = key.replace("_", " ").title()
             if isinstance(value, list):
                 # 리스트: 각 항목을 줄바꿈으로 나열

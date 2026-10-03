@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TEMPERATURE = 0.1
 DEFAULT_MAX_TOKENS = 2048
+# Ollama 기본 컨텍스트(2048 토큰)는 공고 원문(~3천 토큰)보다 짧아 입력이 잘림 → 확장
+DEFAULT_NUM_CTX = 8192
 
 
 class LocalLLM:
@@ -59,6 +61,7 @@ class LocalLLM:
         system: Optional[str] = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         temperature: float = DEFAULT_TEMPERATURE,
+        format: Optional[str] = None,
     ) -> str:
         """
         Generate a text response using the local Ollama model.
@@ -73,6 +76,8 @@ class LocalLLM:
             Maximum number of tokens in the response.
         temperature : float
             Sampling temperature (lower = more deterministic).
+        format : str, optional
+            ``"json"`` forces Ollama to emit a valid JSON object.
 
         Returns
         -------
@@ -89,11 +94,14 @@ class LocalLLM:
         try:
             import ollama  # type: ignore
             client = ollama.Client(host=self._base_url)
+            extra = {"format": format} if format else {}
             response = client.chat(
                 model=self._model,
                 messages=messages,
+                **extra,
                 options={
                     "num_predict": max_tokens,
+                    "num_ctx": DEFAULT_NUM_CTX,
                     "temperature": temperature,
                 },
             )
@@ -117,7 +125,15 @@ class LocalLLM:
             import ollama  # type: ignore
             client = ollama.Client(host=self._base_url)
             models = client.list()
-            available_names = [m["name"] for m in models.get("models", [])]
+            # ollama-python 0.4+ 는 객체(.model), 이전 버전은 dict("name") 반환
+            # (예전 코드는 m["name"] 만 써서 신버전에서 항상 KeyError → 사용 불가 판정, PROJECT_DOCS #013)
+            entries = getattr(models, "models", None)
+            if entries is None:
+                entries = models.get("models", [])
+            available_names = [
+                getattr(m, "model", None) or (m.get("name") if isinstance(m, dict) else "") or ""
+                for m in entries
+            ]
             # Accept both "qwen2.5:7b" and "qwen2.5" as matching
             base_name = self._model.split(":")[0]
             reachable = any(
