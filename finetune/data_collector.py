@@ -188,6 +188,14 @@ def finalize_dataset(rows: list[dict[str, Any]], seed: int = SPLIT_SEED) -> tupl
     rng.shuffle(neg)
     final = pos + neg[:max_neg]
     final.sort(key=lambda r: r["meta"]["url"])
+
+    # 현재 프롬프트·정규화 규칙으로 메시지 재생성 (재라벨링 없이 지시문 변경을 반영)
+    from agents.job_parser import build_local_messages, normalize_requirements
+    for rec in final:
+        label = normalize_requirements(json.loads(rec["messages"][-1]["content"]))
+        rec["messages"] = build_local_messages(_posting_body(rec)) + [
+            {"role": "assistant", "content": json.dumps(label, ensure_ascii=False)}
+        ]
     report = {"input": len(rows), "removed_duplicates": removed_dup,
               "removed_negatives": max(0, len(neg) - max_neg), "output": len(final)}
     return final, report

@@ -53,11 +53,15 @@ class EmbeddingModel:
             True면 OpenAI API 사용, False면 로컬 BGE-M3 사용.
             None이면 settings.USE_OPENAI_EMBEDDINGS 참조 (기본 True).
         """
+        from config.settings import settings
+        # 개인정보 보호 모드: Ollama 로컬 임베딩 (외부 전송 없음)
+        self._privacy = use_openai is None and settings.PRIVACY_MODE
         if use_openai is None:
-            from config.settings import settings
-            use_openai = settings.USE_OPENAI_EMBEDDINGS
+            use_openai = settings.USE_OPENAI_EMBEDDINGS and not self._privacy
         self._use_openai = use_openai
         self._model = None  # lazy load
+        if self._privacy:
+            logger.info("[EmbeddingModel] 개인정보 보호 모드 — Ollama %s 사용", settings.PRIVACY_EMBED_MODEL)
 
         if use_openai:
             logger.info("[EmbeddingModel] OpenAI 임베딩 사용 (model=%s)", OPENAI_EMBEDDING_MODEL)
@@ -79,6 +83,8 @@ class EmbeddingModel:
         """
         if not texts:
             return []
+        if self._privacy:
+            return self._ollama_embed(texts)
         if self._use_openai:
             return self._openai_embed(texts)
         return self._bge_embed(texts)
@@ -92,6 +98,8 @@ class EmbeddingModel:
         list[float]
             쿼리 임베딩 벡터.
         """
+        if self._privacy:
+            return self._ollama_embed([query])[0]
         if self._use_openai:
             return self._openai_embed([query])[0]
         # BGE는 쿼리에 prefix 적용
@@ -111,8 +119,17 @@ class EmbeddingModel:
     # Internal                                                             #
     # ------------------------------------------------------------------ #
 
+    def _ollama_embed(self, texts: list[str]) -> list[list[float]]:
+        """Ollama 로컬 임베딩 (개인정보 보호 모드)."""
+        import ollama  # type: ignore
+        from config.settings import settings
+        client = ollama.Client(host=settings.OLLAMA_BASE_URL)
+        return [list(v) for v in client.embed(model=settings.PRIVACY_EMBED_MODEL, input=texts)["embeddings"]]
+
     def _openai_embed(self, texts: list[str]) -> list[list[float]]:
         """OpenAI Embeddings API 호출."""
+        from llm.openai_client import _assert_openai_allowed
+        _assert_openai_allowed()
         try:
             from config.settings import settings
             client = _get_openai_embed_client(settings.OPENAI_API_KEY)

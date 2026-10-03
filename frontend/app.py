@@ -138,17 +138,51 @@ for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
 
-# 이전 실행에서 벡터 DB에 저장해 둔 프로필이 있으면 등록된 것으로 간주
-if "profile_checked" not in st.session_state:
-    st.session_state["profile_checked"] = True
+# ------------------------------------------------------------------ #
+# 개인정보 보호 모드                                                   #
+# ------------------------------------------------------------------ #
+
+from config.settings import settings as _settings
+
+st.session_state.setdefault("privacy_mode", bool(_settings.PRIVACY_MODE))
+
+
+def _apply_privacy_mode(enabled: bool) -> None:
+    """설정 반영 + 외부 전송 차단. 모드마다 프로필 인덱스가 따로라 등록 상태도 다시 확인."""
+    _settings.PRIVACY_MODE = enabled
+    # LangSmith 추적은 프롬프트(프로필 포함)를 외부 서버로 보냄 → 보호 모드에서 끔
+    os.environ["LANGCHAIN_TRACING_V2"] = "false" if enabled else _settings.LANGCHAIN_TRACING_V2
+    _refresh_profile_status()
+
+
+def _refresh_profile_status() -> None:
+    """현재 모드의 벡터 DB 컬렉션에 저장된 프로필이 있는지 확인."""
     try:
         from rag.vectorstore import VectorStore
-        _count = VectorStore().count()
-        if _count > 0:
-            st.session_state["profile_indexed"] = True
-            st.session_state["profile_chunk_count"] = _count
+        count = VectorStore().count()
     except Exception:
-        pass
+        count = 0
+    st.session_state["profile_indexed"] = count > 0
+    st.session_state["profile_chunk_count"] = count
+
+
+def _missing_local_models() -> list[str]:
+    """보호 모드에 필요한 Ollama 모델 중 설치되지 않은 것."""
+    needed = [_settings.PRIVACY_PARSER_MODEL, _settings.PRIVACY_CHAT_MODEL, _settings.PRIVACY_EMBED_MODEL]
+    try:
+        import ollama
+        listed = ollama.Client(host=_settings.OLLAMA_BASE_URL).list()
+        names = [m.model for m in listed.models]
+    except Exception:
+        return needed + ["(Ollama 서버에 연결할 수 없음)"]
+    return [n for n in needed if not any(x == n or x.startswith(n + ":") for x in names)]
+
+
+if "profile_checked" not in st.session_state:
+    st.session_state["profile_checked"] = True
+    _apply_privacy_mode(st.session_state["privacy_mode"])
+else:
+    _settings.PRIVACY_MODE = st.session_state["privacy_mode"]
 
 
 # ------------------------------------------------------------------ #
@@ -159,6 +193,27 @@ def render_sidebar() -> str:
     with st.sidebar:
         st.markdown("## 💼 GoodJob")
         st.caption("AI 기반 채용 매칭 & 이력서 생성")
+
+        privacy = st.toggle(
+            "🔒 개인정보 보호 모드",
+            value=st.session_state["privacy_mode"],
+            help=(
+                "켜면 프로필·이력서가 이 PC 밖으로 나가지 않습니다. "
+                "공고 파싱은 파인튜닝 sLLM(goodjob-parser), 분석·이력서는 로컬 Qwen2.5-7B, "
+                "임베딩은 로컬 bge-m3 를 사용하고 OpenAI 호출과 LangSmith 추적을 차단합니다. "
+                "대신 결과 품질은 gpt-4o 보다 낮고 속도가 느릴 수 있습니다."
+            ),
+        )
+        if privacy != st.session_state["privacy_mode"]:
+            st.session_state["privacy_mode"] = privacy
+            _apply_privacy_mode(privacy)
+        if privacy:
+            st.caption("로컬 모델로 처리 중 · OpenAI 차단")
+            missing = _missing_local_models()
+            if missing:
+                st.warning("필요한 로컬 모델이 없습니다:\n" + "\n".join(f"- {m}" for m in missing))
+        else:
+            st.caption("OpenAI gpt-4o 사용 중")
         st.divider()
 
         pages = ["프로필 등록", "공고 입력", "분석 & 이력서", "자소서 문항", "공고 추천"]
@@ -439,6 +494,12 @@ def _job_input_text() -> None:
 
 
 def _job_input_image(company_name: str) -> None:
+    if st.session_state["privacy_mode"]:
+        st.warning(
+            "이미지 분석은 OpenAI Vision 이 필요해 개인정보 보호 모드에서는 사용할 수 없습니다. "
+            "공고 텍스트를 붙여넣어 주세요."
+        )
+        return
     st.info("공고 스크린샷을 업로드하면 OpenAI Vision으로 텍스트를 추출합니다.")
     img_file = st.file_uploader(
         "이미지 업로드 (PNG / JPG / WEBP)",

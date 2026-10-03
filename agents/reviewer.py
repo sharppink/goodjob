@@ -94,11 +94,11 @@ def build_review_prompt(state: GoodJobState) -> tuple[str, str]:
 
 def stream_reviewer(state: GoodJobState):
     """최종 이력서를 토큰 단위로 스트리밍합니다 (Streamlit st.write_stream 용)."""
-    from llm.openai_client import OpenAIClient
+    from llm.factory import get_chat_client
     if not (state.get("resume_draft") or "").strip():
         return
     prompt, system = build_review_prompt(state)
-    client = OpenAIClient()
+    client = get_chat_client()
     yield from client.stream(prompt=prompt, system=system, max_tokens=3000)
 
 
@@ -126,8 +126,8 @@ def reviewer_node(state: GoodJobState) -> GoodJobState:
     )
 
     try:
-        from llm.openai_client import OpenAIClient
-        client = OpenAIClient()
+        from llm.factory import get_chat_client
+        client = get_chat_client()
         resume_final = client.generate(
             prompt=prompt,
             system=SYSTEM_PROMPT,

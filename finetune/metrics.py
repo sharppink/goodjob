@@ -102,12 +102,28 @@ def _contains_match(pred: Any, gold: Any) -> float:
     return 1.0 if (p in g or g in p) else 0.0
 
 
+# 한자 4자 이상 연속 또는 중국어 전용 문장부호(，。) — Qwen 계열의 중국어 혼입 탐지
+_CHINESE_LEAK = re.compile(r"[一-鿿]{4,}|[，。；：！？]")
+
+
+def has_chinese_leak(data: Any) -> bool:
+    """예측 JSON 의 문자열 값 어디에든 중국어가 섞였는지 (한국어 공고에 대한 출력 기준)."""
+    if isinstance(data, str):
+        return bool(_CHINESE_LEAK.search(data))
+    if isinstance(data, dict):
+        return any(has_chinese_leak(v) for v in data.values())
+    if isinstance(data, list):
+        return any(has_chinese_leak(v) for v in data)
+    return False
+
+
 def score_one(pred_text: str, gold: dict[str, Any]) -> dict[str, float]:
     pred = parse_prediction(pred_text)
     if pred is None:
         return {"json_valid": 0.0, "is_job_posting_acc": 0.0,
                 **{f"{f}_f1": 0.0 for f in SET_FIELDS},
-                "experience_years_acc": 0.0, "job_title_match": 0.0, "company_name_match": 0.0}
+                "experience_years_acc": 0.0, "job_title_match": 0.0, "company_name_match": 0.0,
+                "no_chinese_leak": 0.0}
 
     def _int(v: Any) -> int:
         try:
@@ -122,6 +138,7 @@ def score_one(pred_text: str, gold: dict[str, Any]) -> dict[str, float]:
         "experience_years_acc": float(_int(pred.get("experience_years")) == _int(gold.get("experience_years"))),
         "job_title_match": _contains_match(pred.get("job_title"), gold.get("job_title")),
         "company_name_match": _contains_match(pred.get("company_name"), gold.get("company_name")),
+        "no_chinese_leak": 0.0 if has_chinese_leak(pred) else 1.0,
     }
 
 
