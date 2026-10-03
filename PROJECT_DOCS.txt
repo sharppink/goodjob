@@ -25,6 +25,29 @@
 동일 문제 재발 방지 및 포트폴리오 트러블슈팅 근거 자료로 활용합니다.
 
 ────────────────────────────────────────────────────────────────
+[2026-10-03] #017 Tavily 사용량 한도 초과로 학습 데이터 수집 중단 (600 목표 → 299)
+────────────────────────────────────────────────────────────────
+발생 위치  : finetune/data_collector.py (본 수집, --target 600 --append)
+증상       : 257번째 공고 이후 모든 검색이
+             "UsageLimitExceededError: Your request has been blocked due to excessive
+              requests ... Verify you are using production API keys."
+             이후 268회 검색이 전부 실패한 뒤에야 종료 (검색 횟수 상한까지 소모)
+원인       : Tavily 개발용 키(tvly-dev-)의 사용량 한도 도달로 추정.
+             수집 코드는 검색 실패를 건너뛰기만 해서 차단 상태에서도 계속 시도함
+해결 방법  : - 연속 5회 검색 실패 시 수집 중단 (MAX_CONSECUTIVE_SEARCH_FAILURES)
+             - 확보한 299건으로 진행: finalize_dataset() 로 정리
+                 중복 제거 28건 (같은 공고가 URL 만 다르게 수집 — 예: saramin jobs/view
+                 vs jobs/relay/view. 본문 유사도 ≥0.9 이고 직무명이 같을 때만 제거)
+                 비공고 축소 40건 (상한이 목표 600 기준으로 계산돼 30% 까지 늘었음 → 15%)
+               → 최종 231건 (공고 197 / 비공고 34), 직무 22종 전부, train 208 / eval 23
+해결 이유  : 중복이 train/eval 에 나뉘어 들어가면 평가 점수가 부풀려짐.
+             비공고가 과하면 "공고 아님" 쪽으로 편향됨
+현재 상태  : 데이터는 정리 완료. Tavily 키는 여전히 차단 상태
+             → 앱의 회사 검색·공고 추천 기능도 현재 동작 불가.
+               Tavily 대시보드에서 사용량 확인 또는 production 키 필요
+재발 방지  : python -m finetune.data_collector --finalize 로 정리 단계만 재실행 가능
+
+────────────────────────────────────────────────────────────────
 [2026-10-03] #016 gpt-4o 분당 토큰 한도(429) 로 재라벨링 중단
 ────────────────────────────────────────────────────────────────
 발생 위치  : llm/openai_client.py (공유 OpenAI 클라이언트) — 연속 라벨링 시
@@ -1080,7 +1103,17 @@ Phase 4. sLLM 파인튜닝
     - 비공고 페이지는 음성 예시로 최대 15% 유지, URL 단위 train/eval 분할
     - 파일럿 완료: 44건 (공고 36 / 비공고 8, 직무 8종), 라벨 품질 표본 확인
       토큰 길이 max 3,178 (Qwen 토크나이저 실측), 정답 JSON max 907 토큰
-    - [ ] 본 수집: python -m finetune.data_collector --target 600 --append  (목표 500~600건)
+    - 스키마 개선 후 재라벨링: 기술명 짧은 이름 규칙 (#015)
+    - [완료] 본 수집: 299건 수집 후 Tavily 한도로 중단 (#017)
+      → 중복·비공고 정리 후 최종 231건 (공고 197 / 비공고 34, 직무 22종)
+         train 208 / eval 23
+    - 베이스 모델 기준선 (Ollama qwen2.5:7b, 이 PC GPU, eval 23건):
+        json_valid 1.000 / is_job_posting 0.957 / required_skills_f1 0.621
+        preferred_skills_f1 0.603 / keywords_f1 0.500 / experience_years 0.826
+        job_title 0.870 / company_name 0.957 / 8.5초/건
+      → 파인튜닝 목표: 기술·키워드 추출(0.50~0.62)과 경력 연수(0.83) 개선
+        (회사명·직무명은 프롬프트 개선만으로 0.87~0.96 — 4건 평가 때의 0.25/0.50 은 표본 오차)
+    - [ ] 데이터 추가: Tavily 한도 해제 후 --append 로 이어서 수집 가능
 
 [준비 완료 / Colab 실행 대기] 4-2. 파인튜닝 실행
     - finetune/train.py: Qwen2.5-7B-Instruct 4bit + LoRA r16, 응답(JSON)에만 loss,

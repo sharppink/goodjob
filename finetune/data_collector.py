@@ -43,6 +43,7 @@ TRAIN_PATH = DATASET_DIR / "parser_train.jsonl"
 EVAL_PATH = DATASET_DIR / "parser_eval.jsonl"
 
 MIN_POSTING_CHARS = 300
+MAX_CONSECUTIVE_SEARCH_FAILURES = 5
 EVAL_RATIO = 0.1
 SPLIT_SEED = 42
 # 공고가 아닌 페이지(음성 예시)는 전체의 이 비율까지만 유지
@@ -78,14 +79,23 @@ def collect_postings(target: int, seen_urls: set[str], rng: random.Random) -> It
 
     client = CompanySearcher()._get_client()
     yielded, searches, max_searches = 0, 0, max(10, target)
+    consecutive_failures = 0
+    if target <= 0:
+        return
     for role, query in _search_queries(rng):
         if yielded >= target or searches >= max_searches:
             return
         searches += 1
         try:
             resp = client.search(query=query, max_results=8, include_raw_content=True)
+            consecutive_failures = 0
         except Exception as exc:  # noqa: BLE001
             logger.warning("[collect] 검색 실패 (%s): %s", query, exc)
+            consecutive_failures += 1
+            if consecutive_failures >= MAX_CONSECUTIVE_SEARCH_FAILURES:
+                # 사용량 한도 차단 등 — 남은 검색을 소모하지 않고 중단 (PROJECT_DOCS #017)
+                print(f"Tavily 검색이 {consecutive_failures}회 연속 실패해 수집을 중단합니다: {exc}", flush=True)
+                return
             continue
         for item in resp.get("results", []):
             url = item.get("url", "")
@@ -128,6 +138,59 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+DUP_SIMILARITY = 0.9
+
+
+def _posting_body(rec: dict[str, Any]) -> str:
+    from agents.job_parser import USER_PROMPT_TEMPLATE
+    head = USER_PROMPT_TEMPLATE.split("{raw_text}")[0]
+    user = rec["messages"][1]["content"]
+    return user[len(head):user.index("\n\n### 출력 형식")]
+
+
+def finalize_dataset(rows: list[dict[str, Any]], seed: int = SPLIT_SEED) -> tuple[list, dict]:
+    """
+    1) 중복 제거: 본문 유사도 ≥ 0.9 이면서 직무명이 같거나 비공고인 레코드 제거
+       (같은 공고가 URL 만 달리 수집된 경우 — train/eval 에 동시에 들어가면 평가가 부풀려짐)
+    2) 비공고 비율을 MAX_NEGATIVE_RATIO 이하로 무작위 축소 (고정 시드)
+    """
+    import re
+    from difflib import SequenceMatcher
+
+    kept: list[dict] = []
+    kept_keys: list[str] = []
+    removed_dup = 0
+    for rec in rows:
+        key = re.sub(r"\s+", "", _posting_body(rec))
+        label = json.loads(rec["messages"][-1]["content"])
+        is_dup = False
+        for other, okey in zip(kept, kept_keys):
+            sm = SequenceMatcher(None, key, okey)
+            if sm.real_quick_ratio() < DUP_SIMILARITY or sm.quick_ratio() < DUP_SIMILARITY:
+                continue
+            if sm.ratio() >= DUP_SIMILARITY:
+                olabel = json.loads(other["messages"][-1]["content"])
+                if not label.get("is_job_posting") or label.get("job_title") == olabel.get("job_title"):
+                    is_dup = True
+                    break
+        if is_dup:
+            removed_dup += 1
+            continue
+        kept.append(rec)
+        kept_keys.append(key)
+
+    pos = [r for r in kept if json.loads(r["messages"][-1]["content"]).get("is_job_posting")]
+    neg = [r for r in kept if not json.loads(r["messages"][-1]["content"]).get("is_job_posting")]
+    max_neg = int(len(pos) * MAX_NEGATIVE_RATIO / (1 - MAX_NEGATIVE_RATIO))
+    rng = random.Random(seed)
+    rng.shuffle(neg)
+    final = pos + neg[:max_neg]
+    final.sort(key=lambda r: r["meta"]["url"])
+    report = {"input": len(rows), "removed_duplicates": removed_dup,
+              "removed_negatives": max(0, len(neg) - max_neg), "output": len(final)}
+    return final, report
 
 
 def split_dataset(rows: list[dict[str, Any]]) -> tuple[list, list]:
@@ -176,13 +239,17 @@ def main() -> None:
     parser.add_argument("--target", type=int, default=50, help="새로 수집할 공고 수")
     parser.add_argument("--append", action="store_true", help="기존 parser_all.jsonl 에 이어서 수집")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--finalize", action="store_true",
+                        help="수집 없이 parser_all.jsonl 로 중복 제거·비율 조정·분할·번들만 다시 수행")
     args = parser.parse_args()
 
     from dotenv import load_dotenv
     load_dotenv()
     logging.basicConfig(level=logging.WARNING)
 
-    rows = _read_jsonl(ALL_PATH) if args.append else []
+    rows = _read_jsonl(ALL_PATH) if (args.append or args.finalize) else []
+    if args.finalize:
+        args.target = 0
     seen = {r["meta"]["url"] for r in rows}
     negatives = sum(1 for r in rows if not json.loads(r["messages"][-1]["content"]).get("is_job_posting"))
     rng = random.Random(args.seed + len(rows))
@@ -208,11 +275,13 @@ def main() -> None:
               f"| {label.get('company_name') or '-'} | {label.get('job_title') or '-'}", flush=True)
         _write_jsonl(ALL_PATH, rows)  # 중간에 끊겨도 진행분 보존
 
-    train, eval_ = split_dataset(rows)
+    final, report = finalize_dataset(rows)
+    print("정리:", json.dumps(report, ensure_ascii=False))
+    train, eval_ = split_dataset(final)
     _write_jsonl(TRAIN_PATH, train)
     _write_jsonl(EVAL_PATH, eval_)
     print(f"\n추가 {added}건 / 라벨링 실패 {failed}건 / 비공고 초과로 제외 {skipped_neg}건")
-    print("통계:", json.dumps(stats(rows), ensure_ascii=False))
+    print("통계(최종):", json.dumps(stats(final), ensure_ascii=False))
     print(f"train {len(train)}건 → {TRAIN_PATH}\neval  {len(eval_)}건 → {EVAL_PATH}")
     print(f"Colab 업로드용 번들 → {write_colab_bundle()}")
 
