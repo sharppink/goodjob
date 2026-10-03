@@ -2,7 +2,7 @@
 frontend/pdf_exporter.py
 
 Markdown 이력서 텍스트를 PDF 바이트로 변환합니다.
-reportlab 사용, 한국어는 Windows 맑은고딕 / 나눔고딕 자동 감지.
+reportlab 사용, 한국어는 Windows 맑은고딕 / 나눔고딕, Linux(Docker) 나눔고딕 자동 감지.
 
 Usage
 -----
@@ -44,15 +44,19 @@ _FONT_CANDIDATES = [
     (r"C:\Windows\Fonts\malgun.ttf",        r"C:\Windows\Fonts\malgunbd.ttf"),
     (r"C:\Windows\Fonts\HANDotum.ttf",      r"C:\Windows\Fonts\HANDotumB.ttf"),
     (r"C:\Windows\Fonts\batang.ttc",        r"C:\Windows\Fonts\batang.ttc"),
+    # Linux / Docker (apt fonts-nanum)
+    ("/usr/share/fonts/truetype/nanum/NanumGothic.ttf", "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"),
 ]
 
-_font_registered = False
+# 등록된 (일반, 볼드) 폰트 이름 — None 이면 아직 등록 시도 전
+_registered_fonts: tuple[str, str] | None = None
 
 
-def _register_fonts() -> None:
-    global _font_registered
-    if _font_registered:
-        return
+def _register_fonts() -> tuple[str, str]:
+    """한국어 폰트를 등록하고 (일반, 볼드) 폰트 이름을 반환합니다."""
+    global _registered_fonts
+    if _registered_fonts is not None:
+        return _registered_fonts
 
     for regular, bold in _FONT_CANDIDATES:
         if Path(regular).exists():
@@ -60,13 +64,15 @@ def _register_fonts() -> None:
                 pdfmetrics.registerFont(TTFont(_FONT_NAME, regular))
                 bold_path = bold if Path(bold).exists() else regular
                 pdfmetrics.registerFont(TTFont(_FONT_BOLD_NAME, bold_path))
-                _font_registered = True
-                return
+                _registered_fonts = (_FONT_NAME, _FONT_BOLD_NAME)
+                return _registered_fonts
             except Exception:
                 continue
 
-    # 폴백: 기본 Helvetica (한국어 깨지지만 오류는 없음)
-    _font_registered = True
+    # 폴백: 기본 Helvetica (한국어는 깨지지만 오류는 없음).
+    # 예전에는 등록되지 않은 KoreanFont 이름을 그대로 써서 PDF 생성이 ValueError 로 실패 (PROJECT_DOCS #023)
+    _registered_fonts = ("Helvetica", "Helvetica-Bold")
+    return _registered_fonts
 
 
 # ------------------------------------------------------------------ #
@@ -74,9 +80,7 @@ def _register_fonts() -> None:
 # ------------------------------------------------------------------ #
 
 def _build_styles() -> dict:
-    _register_fonts()
-    f  = _FONT_NAME
-    fb = _FONT_BOLD_NAME
+    f, fb = _register_fonts()
 
     return {
         "h1": ParagraphStyle(

@@ -72,6 +72,27 @@ def test_explicit_persist_dir_is_not_ignored(tmp_path):
     assert default_vs.count() == 1
 
 
+def test_chroma_host_switches_to_server_client(monkeypatch):
+    """CHROMA_HOST 가 있으면 로컬 파일 대신 Chroma 서버에 접속 (#024)."""
+    import rag.vectorstore as vectorstore
+    from config.settings import settings
+
+    created = []
+
+    def fake_http_client(host, port, settings):
+        created.append((host, port))
+        return object()
+
+    monkeypatch.setattr(vectorstore.chromadb, "HttpClient", fake_http_client)
+    monkeypatch.setattr(vectorstore, "_shared_clients", {})
+    monkeypatch.setattr(settings, "CHROMA_HOST", "chroma")
+    monkeypatch.setattr(settings, "CHROMA_PORT", 8000)
+
+    first = vectorstore._get_client("./ignored")
+    assert vectorstore._get_client("./other") is first, "서버 클라이언트는 하나만 생성"
+    assert created == [("chroma", 8000)]
+
+
 def test_add_search_and_delete():
     vs = VectorStore()
     vs.add_documents(["Python FastAPI 백엔드", "React 프론트엔드", "Kubernetes 운영"],

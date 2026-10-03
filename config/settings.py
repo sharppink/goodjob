@@ -157,6 +157,14 @@ class Settings(BaseSettings):
         default="./chroma_db",
         description="Directory where Chroma persists its index files.",
     )
+    CHROMA_HOST: str = Field(
+        default="",
+        description=(
+            "Chroma 서버 주소. 비어 있으면 CHROMA_PERSIST_DIR 로컬 파일 사용(단일 프로세스 전용). "
+            "API 와 Streamlit 을 동시에 띄울 때(Docker 등)는 Chroma 서버를 공유해야 함 (PROJECT_DOCS #024)."
+        ),
+    )
+    CHROMA_PORT: int = Field(default=8000, description="Chroma 서버 포트")
 
     # ------------------------------------------------------------------ #
     # LLM routing                                                          #

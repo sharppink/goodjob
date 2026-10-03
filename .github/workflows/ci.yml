@@ -36,3 +36,42 @@ jobs:
       # 외부 API 키 불필요: tests/conftest.py 가 가짜 LLM·임베딩을 쓰고 외부 네트워크를 차단
       - name: Run tests
         run: pytest
+
+  docker:
+    name: docker build & smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # 이미지 빌드 + 전체 스택 기동 (API·Streamlit 헬스체크 통과까지 대기)
+      # .env 없이 실행 — 키가 필요한 기능(LLM 호출)은 여기서 검증하지 않음
+      - name: Build and start stack
+        run: docker compose up -d --build --wait --wait-timeout 180
+
+      - name: API endpoints
+        run: |
+          curl -fsS http://127.0.0.1:8000/health
+          # Chroma 서버 연결 확인 (빈 DB)
+          curl -fsS http://127.0.0.1:8000/profile/status | tee /dev/stderr | grep -q '"total_chunks":0'
+          # Redis 세션 저장소 연결 확인 (없는 세션 → 404)
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/resume/no-such-session)" = 404
+          curl -fsS http://127.0.0.1:8501/_stcore/health
+
+      - name: Shared vector DB, Korean PDF, Chromium
+        run: |
+          docker compose exec -T api      python - write    < scripts/docker_smoke.py
+          docker compose exec -T frontend python - read     < scripts/docker_smoke.py
+          docker compose exec -T frontend python - pdf      < scripts/docker_smoke.py
+          docker compose exec -T api      python - chromium < scripts/docker_smoke.py
+
+      - name: Image sizes
+        run: docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep goodjob
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v
