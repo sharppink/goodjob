@@ -93,6 +93,12 @@ class GoodJobState(TypedDict, total=False):
     fit_feedback: Optional[str]
     """Detailed gap-analysis text explaining the fit score."""
 
+    matched_skills: Optional[list[str]]
+    """공고 필수/우대 기술 중 경험에서 근거가 확인된 기술."""
+
+    missing_skills: Optional[list[str]]
+    """공고 필수/우대 기술 중 경험에서 근거를 찾지 못한 기술."""
+
     # ------------------------------------------------------------------ #
     # Resume generation                                                    #
     # ------------------------------------------------------------------ #
@@ -101,6 +107,21 @@ class GoodJobState(TypedDict, total=False):
 
     resume_final: Optional[str]
     """Polished, reviewer-approved resume."""
+
+    # ------------------------------------------------------------------ #
+    # Interview coaching (populated by interview_coach_node)              #
+    # ------------------------------------------------------------------ #
+    generate_interview: Optional[bool]
+    """False 면 interview_coach 노드를 건너뜀 (기본 True)."""
+
+    interview_questions: Optional[list[dict]]
+    """
+    면접 예상 질문 목록. 각 항목:
+    - question  : 질문
+    - intent    : 면접관의 질문 의도
+    - category  : 기술 / 경험 / 컬처핏 / 약점 보완
+    - answer_tip: 답변 전략 힌트
+    """
 
     # ------------------------------------------------------------------ #
     # Meta / debugging                                                     #

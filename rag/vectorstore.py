@@ -10,6 +10,8 @@ chunks live in a single, easily-queried collection.
 from __future__ import annotations
 
 import logging
+import os
+import uuid
 from typing import Any, Optional
 
 import chromadb
@@ -24,17 +26,19 @@ COLLECTION_NAME = "goodjob_profile"
 
 # Process-wide singleton — prevents multiple PersistentClient instances from
 # opening the same SQLite file concurrently (causes segfault on Windows).
-_shared_client: Optional[chromadb.PersistentClient] = None
+# 경로별로 하나씩 유지 — 예전에는 첫 경로의 클라이언트를 모든 경로에 재사용해서
+# VectorStore(persist_dir=다른경로) 가 무시되는 버그가 있었음 (PROJECT_DOCS #009)
+_shared_clients: dict[str, chromadb.PersistentClient] = {}
 
 
 def _get_client(persist_dir: str) -> chromadb.PersistentClient:
-    global _shared_client
-    if _shared_client is None:
-        _shared_client = chromadb.PersistentClient(
+    key = os.path.abspath(persist_dir)
+    if key not in _shared_clients:
+        _shared_clients[key] = chromadb.PersistentClient(
             path=persist_dir,
             settings=ChromaSettings(anonymized_telemetry=False),
         )
-    return _shared_client
+    return _shared_clients[key]
 
 
 class VectorStore:
@@ -108,7 +112,7 @@ class VectorStore:
             return
 
         embeddings = self._embedding_model.embed_texts(docs)
-        ids = [f"doc_{i}_{hash(d) & 0xFFFFFF}" for i, d in enumerate(docs)]
+        ids = [f"doc_{uuid.uuid4().hex}" for _ in docs]
         metadatas = metadatas or [{}] * len(docs)
 
         self._collection.add(  # type: ignore[union-attr]
@@ -144,6 +148,11 @@ class VectorStore:
         )
         documents: list[list[str]] = results.get("documents", [[]])
         return documents[0] if documents else []
+
+    def get_all_documents(self) -> list[str]:
+        """Return every stored document text (insertion order not guaranteed)."""
+        self._ensure_initialized()
+        return self._collection.get(include=["documents"])["documents"]  # type: ignore[union-attr]
 
     def delete_all(self) -> None:
         """

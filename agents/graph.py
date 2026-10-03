@@ -1,7 +1,7 @@
 """
 agents/graph.py
 
-Assembles the GoodJob LangGraph StateGraph from the five agent nodes and
+Assembles the GoodJob LangGraph StateGraph from the six agent nodes and
 compiles it into an executable ``app`` object.
 
 Graph topology
@@ -28,6 +28,10 @@ Graph topology
   reviewer             -- self-critiques and produces resume_final
        |
        v
+  interview_coach      -- interview questions + answer tips
+                          (skipped when generate_interview is False)
+       |
+       v
     [END]
 """
 
@@ -40,16 +44,14 @@ from langgraph.graph import StateGraph, END
 from agents.state import GoodJobState
 from agents.job_parser import job_parser_node
 from agents.rag_retriever import rag_retriever_node
-from agents.fit_analyzer import fit_analyzer_node
+from agents.fit_analyzer import LOW_FIT_THRESHOLD, fit_analyzer_node
 from agents.resume_writer import resume_writer_node
 from agents.reviewer import reviewer_node
+from agents.interview_coach import interview_coach_node
 
 # ------------------------------------------------------------------ #
 # Conditional edge logic                                               #
 # ------------------------------------------------------------------ #
-
-LOW_FIT_THRESHOLD = 0.3
-
 
 def _route_after_fit_analysis(
     state: GoodJobState,
@@ -87,6 +89,7 @@ def build_graph() -> StateGraph:
     graph.add_node("fit_analyzer", fit_analyzer_node)
     graph.add_node("resume_writer", resume_writer_node)
     graph.add_node("reviewer", reviewer_node)
+    graph.add_node("interview_coach", interview_coach_node)
 
     # Linear edges
     graph.set_entry_point("job_parser")
@@ -104,7 +107,8 @@ def build_graph() -> StateGraph:
     )
 
     graph.add_edge("resume_writer", "reviewer")
-    graph.add_edge("reviewer", END)
+    graph.add_edge("reviewer", "interview_coach")
+    graph.add_edge("interview_coach", END)
 
     return graph
 

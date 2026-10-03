@@ -1,0 +1,22 @@
+# GoodJob 공고 파싱 모델 (Qwen2.5-7B + LoRA 파인튜닝, GGUF q4_k_m)
+#
+# 1) Colab 에서 받은 .gguf 파일을 이 폴더에 goodjob-parser.Q4_K_M.gguf 이름으로 둡니다.
+# 2) ollama create goodjob-parser -f finetune/ollama/Modelfile
+# 3) .env 에 LOCAL_MODEL_NAME=goodjob-parser, PARSE_WITH_LOCAL_LLM=true
+
+FROM ./goodjob-parser.Q4_K_M.gguf
+
+# Qwen2.5 ChatML — 학습 때 사용한 chat_template("qwen-2.5")과 같은 형식
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+{{ .Response }}<|im_end|>
+"""
+
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|im_start|>"
+# 공고 원문 ~3천 토큰 + JSON 출력 — 기본 2048 이면 입력이 잘림
+PARAMETER num_ctx 8192
+PARAMETER temperature 0.1

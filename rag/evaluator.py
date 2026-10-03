@@ -1,100 +1,110 @@
 """
 rag/evaluator.py
 
-RAGAS를 사용한 RAG 파이프라인 품질 자동 평가.
+RAGAS(0.4.x)를 사용한 RAG 파이프라인 품질 자동 평가.
 
 측정 지표
 ---------
-- context_precision  : 검색된 컨텍스트가 실제로 답변에 도움이 됐는지
-- context_recall     : 정답 생성에 필요한 컨텍스트를 빠뜨리지 않았는지
-- faithfulness       : 생성된 답변이 컨텍스트에 충실한지 (환각 탐지)
-- answer_relevancy   : 최종 답변이 질문과 얼마나 관련 있는지
+- context_recall     : 정답(reference)에 필요한 정보를 검색 결과가 빠짐없이 담았는지
+- context_precision  : 검색된 청크 중 실제로 정답에 쓸모 있는 청크가 상위에 있는지
+- faithfulness       : 생성된 답변이 검색 컨텍스트에 근거하는지 (환각 탐지)
+- answer_relevancy   : 답변이 질문에 맞는 내용인지
+
+평가 LLM 은 gpt-4o-mini, 임베딩은 text-embedding-3-small 을 사용합니다.
 
 사용 방법
 ---------
     from rag.evaluator import RAGEvaluator
     evaluator = RAGEvaluator()
-    score = evaluator.evaluate_single(
-        question="Python 백엔드 경험이 있나요?",
-        answer="네, 3년간 FastAPI로 ...",
-        contexts=["FastAPI 프로젝트 2021~2024 ..."],
-    )
-    print(score)  # {"faithfulness": 0.95, "answer_relevancy": 0.88, ...}
+    scores = evaluator.evaluate([
+        {
+            "user_input": "Kubernetes 운영 경험이 있나요?",
+            "retrieved_contexts": ["..."],
+            "response": "네, ...",
+            "reference": "EKS 클러스터 3개를 운영했다.",
+        },
+    ])
+    print(scores["mean"])   # {"context_recall": 0.9, ...}
+
+전체 비교 실험은 ``python -m rag.eval_rag`` 를 참고하세요.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+import warnings
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+EVAL_LLM_MODEL = "gpt-4o-mini"
+EVAL_EMBEDDING_MODEL = "text-embedding-3-small"
+METRIC_NAMES = ["context_recall", "context_precision", "faithfulness", "answer_relevancy"]
 
 
 class RAGEvaluator:
     """RAGAS 기반 RAG 품질 평가기."""
 
-    def evaluate_single(
-        self,
-        question: str,
-        answer: str,
-        contexts: list[str],
-        ground_truth: Optional[str] = None,
-    ) -> dict[str, float]:
-        """
-        단일 QA 쌍에 대한 RAG 품질 점수 반환.
+    def __init__(self) -> None:
+        from config.settings import settings
+        from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
-        Parameters
-        ----------
-        question : str
-            사용자 질문 또는 채용공고 요구 사항.
-        answer : str
-            RAG가 생성한 답변 또는 이력서 섹션.
-        contexts : list[str]
-            검색된 사용자 경험 청크들.
-        ground_truth : str, optional
-            정답 레퍼런스 (없으면 일부 지표 생략).
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            from ragas.embeddings import LangchainEmbeddingsWrapper
+            from ragas.llms import LangchainLLMWrapper
 
-        Returns
-        -------
-        dict[str, float]
-            각 지표의 점수 (0.0 ~ 1.0).
-        """
-        try:
-            from ragas import evaluate
-            from ragas.metrics import (
-                answer_relevancy,
-                context_precision,
-                faithfulness,
+            self._llm = LangchainLLMWrapper(
+                ChatOpenAI(model=EVAL_LLM_MODEL, temperature=0, api_key=settings.OPENAI_API_KEY)
             )
-            from datasets import Dataset
+            self._embeddings = LangchainEmbeddingsWrapper(
+                OpenAIEmbeddings(model=EVAL_EMBEDDING_MODEL, api_key=settings.OPENAI_API_KEY)
+            )
 
-            data = {
-                "question": [question],
-                "answer": [answer],
-                "contexts": [contexts],
-            }
-            if ground_truth:
-                data["ground_truth"] = [ground_truth]
-
-            dataset = Dataset.from_dict(data)
-            metrics = [faithfulness, answer_relevancy, context_precision]
-
-            result = evaluate(dataset, metrics=metrics)
-            scores = {k: float(v) for k, v in result.items()}
-            logger.info("[RAGEvaluator] 평가 완료: %s", scores)
-            return scores
-
-        except Exception as exc:
-            logger.error("[RAGEvaluator] 평가 실패: %s", exc)
-            return {}
-
-    def evaluate_batch(self, samples: list[dict]) -> list[dict[str, float]]:
+    def evaluate(self, samples: list[dict[str, Any]]) -> dict[str, Any]:
         """
-        여러 샘플 일괄 평가.
+        샘플 목록을 평가합니다.
 
         Parameters
         ----------
         samples : list[dict]
-            각 dict는 evaluate_single 의 파라미터와 동일한 키를 가짐.
+            각 dict 키: user_input, retrieved_contexts, response, reference
+
+        Returns
+        -------
+        dict
+            ``mean``: 지표별 평균 점수, ``per_sample``: 샘플별 점수 리스트
         """
-        return [self.evaluate_single(**s) for s in samples]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            from ragas import EvaluationDataset, evaluate
+            from ragas.metrics import (
+                Faithfulness,
+                LLMContextPrecisionWithReference,
+                LLMContextRecall,
+                ResponseRelevancy,
+            )
+
+            metrics = [
+                LLMContextRecall(llm=self._llm),
+                LLMContextPrecisionWithReference(llm=self._llm),
+                Faithfulness(llm=self._llm),
+                ResponseRelevancy(llm=self._llm, embeddings=self._embeddings),
+            ]
+            dataset = EvaluationDataset.from_list(samples)
+            result = evaluate(dataset, metrics=metrics, show_progress=False)
+
+        df = result.to_pandas()
+        # ragas 버전에 따라 컬럼명이 다를 수 있어 표준 이름으로 매핑
+        rename = {
+            "llm_context_precision_with_reference": "context_precision",
+            "context_precision": "context_precision",
+            "context_recall": "context_recall",
+            "faithfulness": "faithfulness",
+            "answer_relevancy": "answer_relevancy",
+        }
+        df = df.rename(columns={c: rename[c] for c in df.columns if c in rename})
+        cols = [c for c in METRIC_NAMES if c in df.columns]
+        mean = {c: round(float(df[c].mean()), 3) for c in cols}
+        logger.info("[RAGEvaluator] 평가 완료: %s", mean)
+        return {"mean": mean, "per_sample": df[["user_input", *cols]].to_dict("records")}

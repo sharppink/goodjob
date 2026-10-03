@@ -71,6 +71,17 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------ #
+    # Embeddings                                                           #
+    # ------------------------------------------------------------------ #
+    USE_OPENAI_EMBEDDINGS: bool = Field(
+        default=True,
+        description=(
+            "True: OpenAI text-embedding-3-small, False: local BGE-M3. "
+            "Changing this requires deleting chroma_db and re-indexing."
+        ),
+    )
+
+    # ------------------------------------------------------------------ #
     # RAG quality (RAGAS + Reranker)                                      #
     # ------------------------------------------------------------------ #
     RERANKER_MODEL: str = Field(
@@ -78,8 +89,11 @@ class Settings(BaseSettings):
         description="HuggingFace model ID for 2-stage retrieval reranking.",
     )
     RERANKER_ENABLED: bool = Field(
-        default=True,
-        description="Enable BGE reranker after initial vector search.",
+        default=False,
+        description=(
+            "Enable BGE reranker after initial vector search. Off by default: RAGAS eval "
+            "showed it lowers context_recall 0.90 -> 0.65 on Korean IT profiles (PROJECT_DOCS #010)."
+        ),
     )
     RAG_TOP_K_INITIAL: int = Field(
         default=20,
@@ -112,6 +126,14 @@ class Settings(BaseSettings):
     LOCAL_MODEL_NAME: str = Field(
         default="qwen2.5:7b",
         description="Ollama model tag to use for low-complexity tasks.",
+    )
+    PARSE_WITH_LOCAL_LLM: bool = Field(
+        default=False,
+        description=(
+            "True: job_parser always tries the local model first (regardless of posting "
+            "length) and falls back to OpenAI on failure. Use with the fine-tuned parser "
+            "(LOCAL_MODEL_NAME=goodjob-parser)."
+        ),
     )
 
     # ------------------------------------------------------------------ #

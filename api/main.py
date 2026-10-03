@@ -14,7 +14,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import company, profile, resume
+from api.routes import company, profile, recommend, resume
 from config.settings import settings
 from config.tracing import setup_tracing
 
@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
     application.include_router(profile.router, prefix="/profile", tags=["Profile"])
     application.include_router(company.router, prefix="/company", tags=["Company"])
     application.include_router(resume.router, prefix="/resume", tags=["Resume"])
+    application.include_router(recommend.router, prefix="/recommend", tags=["Recommend"])
 
     # ---- Lifecycle events ----
     @application.on_event("startup")

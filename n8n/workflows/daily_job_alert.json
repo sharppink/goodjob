@@ -1,0 +1,73 @@
+{
+  "name": "GoodJob - Daily Job Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 8 * * 1-5" }] }
+      },
+      "id": "b1b2c3d4-0002-4000-8000-000000000001",
+      "name": "Every weekday 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 매일 탐색할 키워드 — 필요에 맞게 수정하세요\nconst keywords = ['Python 백엔드', 'AI 엔지니어'];\nreturn keywords.map(query => ({ json: { query } }));"
+      },
+      "id": "b1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Keywords",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.GOODJOB_API_URL }}/recommend",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: $json.query }) }}",
+        "options": { "timeout": 300000 }
+      },
+      "id": "b1b2c3d4-0002-4000-8000-000000000003",
+      "name": "GoodJob: POST /recommend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 키워드별 추천 결과를 하나의 Slack 메시지로 합칩니다\nconst lines = [];\nfor (const item of $input.all()) {\n  const r = item.json;\n  lines.push(`*${r.query}* — ${r.ranked_matches.length}건`);\n  for (const m of r.ranked_matches) {\n    lines.push(`  ${m.rank}. ${m.company} · ${m.job_title || m.title}  적합도 ${Math.round(m.fit_score * 100)}%  <${m.url}|공고 보기>`);\n  }\n  if (r.ranked_matches.length === 0) lines.push('  (적합도 기준을 넘는 공고 없음)');\n}\nreturn [{ json: { text: `:briefcase: GoodJob 오늘의 추천 공고\\n${lines.join('\\n')}` } }];"
+      },
+      "id": "b1b2c3d4-0002-4000-8000-000000000004",
+      "name": "Build digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}",
+        "options": {}
+      },
+      "id": "b1b2c3d4-0002-4000-8000-000000000005",
+      "name": "Slack: send digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Every weekday 08:00": { "main": [[{ "node": "Keywords", "type": "main", "index": 0 }]] },
+    "Keywords": { "main": [[{ "node": "GoodJob: POST /recommend", "type": "main", "index": 0 }]] },
+    "GoodJob: POST /recommend": { "main": [[{ "node": "Build digest", "type": "main", "index": 0 }]] },
+    "Build digest": { "main": [[{ "node": "Slack: send digest", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "timezone": "Asia/Seoul" },
+  "active": false
+}

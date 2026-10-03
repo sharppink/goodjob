@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -78,8 +79,10 @@ async def search_company(body: CompanySearchRequest) -> CompanySearchResponse:
     try:
         from search.company_searcher import CompanySearcher
         searcher = CompanySearcher()
-        company_info = searcher.search_company_info(body.company_name)
-        job_postings = searcher.search_job_postings(body.company_name, role=body.role)
+        company_info = await run_in_threadpool(searcher.search_company_info, body.company_name)
+        job_postings = await run_in_threadpool(
+            searcher.search_job_postings, body.company_name, role=body.role
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("[company/search] Error: %s", exc)
         raise HTTPException(
@@ -124,8 +127,9 @@ async def parse_company_image(
 
     try:
         from search.image_parser import ImageParser
-        parser = ImageParser()
-        result = parser.parse_job_posting_image(tmp_path)
+        result = await run_in_threadpool(
+            lambda: ImageParser().parse_job_posting_image(tmp_path)
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("[company/image] Error: %s", exc)
         raise HTTPException(

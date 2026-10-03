@@ -21,6 +21,12 @@ from agents.state import GoodJobState
 
 logger = logging.getLogger(__name__)
 
+# 청크 수가 이 값 이하인 작은 프로필은 검색으로 거르지 않고 전부 사용
+# (한 장짜리 이력서는 전체를 넣어도 토큰이 적고, 다중 쿼리가 같은 상위 청크만
+#  반복 반환해 프로젝트 등 일부 섹션이 누락되는 문제를 막음 — PROJECT_DOCS #008)
+SMALL_PROFILE_CHUNKS = 12
+MAX_RESULTS = 8
+
 
 def rag_retriever_node(state: GoodJobState) -> GoodJobState:
     """job_requirements를 기반으로 사용자 경험을 벡터 검색합니다."""
@@ -47,6 +53,14 @@ def rag_retriever_node(state: GoodJobState) -> GoodJobState:
         state["retrieved_experiences"] = []
         return state
 
+    total = vs.count()
+    if total <= SMALL_PROFILE_CHUNKS:
+        docs = vs.get_all_documents()
+        logger.info("[rag_retriever] 작은 프로필(%d개 청크) — 전체 사용.", total)
+        state["retrieved_experiences"] = docs
+        state["errors"] = errors
+        return state
+
     # job_requirements → 검색 쿼리 생성 (다각도 쿼리)
     queries = _build_queries(job_requirements)
     logger.info("[rag_retriever] 생성된 쿼리 %d개", len(queries))
@@ -65,8 +79,8 @@ def rag_retriever_node(state: GoodJobState) -> GoodJobState:
                 seen.add(r)
                 all_results.append(r)
 
-    # 최종 상위 5개만 유지
-    final = all_results[:5]
+    # 쿼리별 결과의 합집합에서 상위 MAX_RESULTS 개 유지
+    final = all_results[:MAX_RESULTS]
     logger.info("[rag_retriever] 최종 검색 결과: %d개 경험 청크", len(final))
 
     state["retrieved_experiences"] = final
