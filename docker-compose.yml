@@ -1,53 +1,88 @@
-version: "3.9"
-
 # ============================================================
 # GoodJob - Docker Compose
-# 사용법: docker compose up -d
+#
+#   docker compose up -d --build      # API + Streamlit + Chroma + Redis
+#   docker compose --profile mlflow up -d   # MLflow UI 포함
+#
+# 접속: Streamlit http://localhost:8501 / API http://localhost:8000/docs
+#
+# - 포트는 모두 127.0.0.1 에만 열어 같은 네트워크의 다른 PC 가 접속해
+#   OpenAI 키를 소모하지 못하게 함
+# - API 키는 .env 에서 읽음 (이미지에는 포함되지 않음, .dockerignore)
+# - Chroma 서버가 ./chroma_db 를 사용 — 로컬에서 streamlit/uvicorn 을 직접 실행할 때와
+#   같은 DB 라서 등록한 프로필이 그대로 보임. 단, 컨테이너와 로컬 앱을 동시에 띄우지 말 것
+#   (Chroma 로컬 파일 모드는 단일 프로세스 전용 — PROJECT_DOCS #024)
 # ============================================================
+
+x-app: &app
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    CHROMA_HOST: chroma
+    CHROMA_PORT: "8000"
+    REDIS_ENABLED: "true"
+    REDIS_URL: redis://redis:6379
+    # 개인정보 보호 모드: 호스트 PC 에서 실행 중인 Ollama 사용
+    OLLAMA_BASE_URL: http://host.docker.internal:11434
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    chroma:
+      condition: service_started   # 앱은 첫 요청 때 연결하므로 기동 순서만 맞춤
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
 
 services:
 
   # ── FastAPI 백엔드 ──────────────────────────────────────────
   api:
+    <<: *app
     build:
       context: .
-      dockerfile: Dockerfile.api
+      target: api
+    image: goodjob-api
     ports:
-      - "8000:8000"
-    env_file: .env
-    volumes:
-      - ./chroma_db:/app/chroma_db
-      - ./mlflow_runs:/app/mlflow_runs
-    depends_on:
-      - redis
-    restart: unless-stopped
+      - "127.0.0.1:8000:8000"
 
-  # ── Streamlit 프론트엔드 ────────────────────────────────────
+  # ── Streamlit 프론트엔드 (에이전트 직접 호출, API 와 독립) ──
   frontend:
+    <<: *app
     build:
       context: .
-      dockerfile: Dockerfile.frontend
+      target: frontend
+    image: goodjob-frontend
     ports:
-      - "8501:8501"
-    env_file: .env
-    depends_on:
-      - api
+      - "127.0.0.1:8501:8501"
+
+  # ── Chroma 벡터 DB 서버 (API·Streamlit 공유) ────────────────
+  # 이미지 버전은 requirements.lock.txt 의 chromadb 와 맞춤
+  chroma:
+    image: chromadb/chroma:1.5.9
+    volumes:
+      - ./chroma_db:/data
     restart: unless-stopped
 
-  # ── Redis (세션 캐시) ───────────────────────────────────────
+  # ── Redis (이력서 생성 결과 세션, 7일 보관) ─────────────────
+  # 호스트 포트를 열지 않음 (컨테이너 네트워크 내부에서만 사용)
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
-  # ── MLflow UI (파인튜닝 실험 대시보드) ──────────────────────
+  # ── MLflow UI (선택, --profile mlflow) ──────────────────────
   mlflow:
     image: ghcr.io/mlflow/mlflow:latest
+    profiles: ["mlflow"]
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       - ./mlflow_runs:/mlflow
     command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri /mlflow

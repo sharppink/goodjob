@@ -1,0 +1,29 @@
+# 비밀 정보 — 이미지에 절대 포함하지 않음 (compose 의 env_file 로 실행 시 주입)
+.env
+.env.*
+!.env.example
+
+# 로컬 데이터 (볼륨으로 마운트)
+chroma_db/
+mlflow_runs/
+
+# 가상환경·캐시
+.venv/
+venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+
+# 학습 데이터·모델 (용량 큼, 채용 사이트 원문 포함)
+finetune/
+*.gguf
+*.zip
+
+# 개발 전용
+.git/
+.github/
+tests/
+test_*.py
+n8n/
+*.md
+PROJECT_DOCS.txt*

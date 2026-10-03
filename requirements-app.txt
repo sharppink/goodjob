@@ -1,0 +1,36 @@
+# Docker 실행용 패키지 (API + Streamlit) — 학습·평가 전용 패키지 제외
+# 버전은 requirements.lock.txt 를 제약 조건으로 함께 사용해 고정:
+#   pip install -r requirements-app.txt -c requirements.lock.txt
+#
+# 제외한 것과 영향
+# - torch / transformers / sentence-transformers : 로컬 BGE 임베딩(USE_OPENAI_EMBEDDINGS=false)과
+#   리랭커(RERANKER_ENABLED=true)는 컨테이너에서 사용 불가. 기본 설정(OpenAI 임베딩, 리랭커 끔)과
+#   개인정보 보호 모드(Ollama bge-m3)는 영향 없음
+# - ragas / langchain-openai / mlflow / trl / peft / datasets : RAG 평가·파인튜닝 전용
+
+# --- API / Frontend ---
+fastapi
+uvicorn[standard]
+python-multipart
+streamlit
+reportlab
+
+# --- LLM / Agents ---
+openai
+langgraph
+langsmith
+ollama
+
+# --- RAG ---
+chromadb
+pymupdf
+
+# --- Search / Scraping ---
+tavily-python
+playwright
+httpx
+
+# --- Config / Session ---
+pydantic-settings
+python-dotenv
+redis

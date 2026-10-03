@@ -34,7 +34,8 @@
 10-04  Colab 파인튜닝(Qwen2.5-7B QLoRA) → GGUF → 로컬 Ollama 비교 평가,
        개인정보 보호 모드(전체 로컬 처리) 구현 (#018~#020)
        GitHub PR #2 → main 반영 (머지 18f121c)
-       pytest 자동 테스트 118개 작성, 작성 중 발견한 버그 2건 수정 (#021~#022)
+       pytest 자동 테스트·GitHub Actions CI (PR #3), Dockerfile·docker compose,
+       작성 중 발견한 버그 4건 수정 (#021~#024)
 
 핵심 수치 (포트폴리오 근거)
 ---------------------------
@@ -56,8 +57,9 @@
 - GitHub 반영 완료: 10-04 작업(#018~#020 수정, 개인정보 보호 모드, 평가 결과 문서)은
   PR #2 로 main 에 병합 (merge 커밋 18f121c)
 - Tavily 개발 키 사용량 한도 도달 → 회사 검색·공고 추천·데이터 수집 일시 불가 (#017)
-- pytest 자동 테스트 118개 추가 (5-2 완료, #021·#022 수정), GitHub Actions 로 PR·main 푸시마다 실행
-- 남은 작업: Phase 5 (Dockerfile + CI 이미지 빌드, README), 학습 데이터 목록 페이지 정리 후 재학습(선택)
+- pytest 121개 + Docker(docker compose) 구성 완료, GitHub Actions 가 PR·main 푸시마다
+  테스트와 컨테이너 빌드·동작 확인 실행 (5-1·5-2·5-3 완료, #021~#024 수정)
+- 남은 작업: Phase 5-4 README·포트폴리오 문서, 학습 데이터 목록 페이지 정리 후 재학습(선택)
 
 
 ================================================================
@@ -66,6 +68,41 @@
 
 이 섹션은 실제 개발/테스트 중 발생한 문제를 기록합니다.
 동일 문제 재발 방지 및 포트폴리오 트러블슈팅 근거 자료로 활용합니다.
+
+────────────────────────────────────────────────────────────────
+[2026-10-04] #024 Chroma 로컬 파일 DB 를 두 프로세스가 공유하면 다른 쪽이 저장한 벡터를 검색 못 함
+────────────────────────────────────────────────────────────────
+발생 위치  : rag/vectorstore.py (PersistentClient) — docker-compose 설계 중 확인
+             기존 compose 는 api 만 ./chroma_db 를 마운트하고 frontend 는 마운트하지 않아
+             Streamlit 에서 등록한 프로필이 컨테이너 안에만 저장되고 API 에서는 안 보이는 구조였음
+증상       : 같은 폴더를 연 프로세스 A 가 실행 중일 때 프로세스 B 가 문서를 추가하면,
+             A 에서 count() 는 1 로 보이지만 검색(query)은
+             "Error creating hnsw segment reader: Nothing found on disk" 로 실패 (로컬 재현)
+원인       : Chroma 로컬 파일 모드는 단일 프로세스 전용 — 벡터 인덱스(HNSW)를 프로세스 메모리에
+             들고 있어서 다른 프로세스의 쓰기를 반영하지 못함.
+             로컬에서 Streamlit 과 uvicorn 을 동시에 띄워도 같은 문제가 생길 수 있음
+해결 방법  : CHROMA_HOST 설정 추가 — 값이 있으면 Chroma 서버(HttpClient)에 접속.
+             docker compose 는 chroma 서버 컨테이너를 두고 api·frontend 가 공유.
+             비어 있으면 기존처럼 로컬 폴더 사용 (Streamlit 하나만 쓸 때는 변화 없음)
+검증       : 로컬 chroma run 서버로 두 프로세스 쓰기→검색 성공,
+             CI 에서 api 컨테이너가 저장한 문서를 frontend 컨테이너가 검색 성공
+현재 상태  : 해결 완료 (2026-10-04)
+교훈       : 임베디드 DB 는 "여러 프로세스가 같은 파일을 연다"는 순간 서버 모드가 필요한지 확인할 것.
+             count 처럼 메타데이터만 보는 확인으로는 문제가 드러나지 않음
+
+────────────────────────────────────────────────────────────────
+[2026-10-04] #023 한국어 폰트가 없는 환경에서 이력서 PDF 생성 실패
+────────────────────────────────────────────────────────────────
+발생 위치  : frontend/pdf_exporter.py — Dockerfile 작성 중 코드 검토로 발견
+증상       : Linux(Docker 컨테이너)처럼 C:\Windows\Fonts 가 없으면 PDF 다운로드 시
+             ValueError: Can't map determine family/bold/italic for koreanfontbold
+원인       : 폰트 후보가 Windows 경로뿐이었고, 주석에는 "Helvetica 폴백"이라고 적혀 있었지만
+             실제로는 등록되지 않은 KoreanFont 이름을 그대로 스타일에 사용
+해결 방법  : 폰트를 찾지 못하면 Helvetica 로 실제 폴백, Linux 나눔고딕 경로 추가,
+             Docker 이미지에 fonts-nanum 설치
+검증       : 폰트 없는 상황 재현 → 수정 후 PDF 생성 확인, CI 컨테이너에서 KoreanFont 로 생성 확인
+현재 상태  : 해결 완료 (2026-10-04). 회귀 테스트 tests/test_pdf_exporter.py
+교훈       : "폴백한다"는 주석은 실제 폴백 경로를 실행해 봐야 믿을 수 있음
 
 ────────────────────────────────────────────────────────────────
 [2026-10-04] #022 손상된 PDF 업로드 시 500 응답 대신 PermissionError + 임시 파일 잔류 (Windows)
@@ -1358,12 +1395,23 @@ Phase 4. sLLM 파인튜닝
 Phase 5. 배포 및 마무리
 ────────────────────────────────────────────────────────────────
 
-[ ] 5-1. Dockerfile 작성
-    - Dockerfile.api: FastAPI 서비스
-    - Dockerfile.frontend: Streamlit 서비스
-    - docker compose up 검증
+[완료 2026-10-04] 5-1. Dockerfile 작성
+    - Dockerfile 하나에 빌드 대상 2개 (api / frontend) — 두 서비스가 같은 패키지·코드를 쓰므로
+      파일을 나누면 중복만 생김. python:3.10-slim, 비루트 사용자, HEALTHCHECK
+    - requirements-app.txt: 실행용 패키지만 (torch·transformers·ragas·mlflow 등 제외)
+      → 로컬 BGE 임베딩·리랭커는 컨테이너에서 사용 불가 (기본 설정·보호 모드는 영향 없음)
+    - Playwright Chromium(공고 페이지 수집), fonts-nanum(이력서 PDF 한국어) 포함
+    - 이미지 크기 2.25GB (대부분 Chromium, 두 이미지가 레이어 공유)
+    - docker-compose.yml: api / frontend / chroma 서버 / redis (+ mlflow 는 --profile mlflow)
+        · 포트는 127.0.0.1 에만 바인딩 (다른 PC 접속으로 OpenAI 키 소모 방지), Redis 포트 미노출
+        · .env 는 이미지에 넣지 않고 실행 시 주입 (.dockerignore)
+        · Chroma 서버가 ./chroma_db 사용 → 로컬 실행 때 등록한 프로필 그대로 사용 (#024)
+        · 보호 모드는 호스트 PC 의 Ollama 사용 (host.docker.internal)
+    - 실행: docker compose up -d --build → http://localhost:8501 / http://localhost:8000/docs
+    - 검증: 이 PC 에 Docker 미설치 → GitHub Actions 에서 빌드·기동·동작 확인 (5-3)
+    - 작성 중 발견해 수정한 버그: #023 (PDF 폰트), #024 (Chroma 다중 프로세스)
 
-[완료 2026-10-04] 5-2. 테스트 작성 (pytest, 118개, 약 12초)
+[완료 2026-10-04] 5-2. 테스트 작성 (pytest, 121개, 약 12초)
     - 실행: pip install -r requirements-dev.txt → pytest   (pytest.ini 가 tests/ 만 수집)
     - 외부 API·실제 DB 없이 동작: LLM 은 FakeChatClient, 임베딩은 단어 해시 가짜 모델,
       Chroma 는 테스트마다 임시 폴더
@@ -1377,12 +1425,14 @@ Phase 5. 배포 및 마무리
     - 루트의 test_*.py 는 실제 API 를 호출하는 수동 스크립트 (test_rag.py 는 실제 DB 를 지움 —
       pytest 대상 아님)
 
-[진행 중] 5-3. GitHub Actions CI/CD
+[완료 2026-10-04] 5-3. GitHub Actions CI/CD
     - [완료 2026-10-04] .github/workflows/ci.yml: PR·main 푸시 시 pytest 자동 실행
         Ubuntu + Python 3.10, requirements-ci.txt(테스트용 11개 패키지)만 설치하고
         requirements.lock.txt 를 제약 조건(-c)으로 써서 로컬과 같은 버전 사용.
         torch 등 학습용 패키지를 빼서 설치 시간 단축. API 키·Secrets 불필요
-    - [ ] main 브랜치 푸시 시 Docker 이미지 빌드 (5-1 Dockerfile 작성 후 추가)
+    - [완료 2026-10-04] docker 잡: PR·main 푸시마다 이미지 빌드 + 전체 스택 기동 후 확인
+        API·Streamlit 헬스, Chroma·Redis 연결, 컨테이너 간 벡터 공유, 한국어 PDF, Chromium 실행
+        (scripts/docker_smoke.py, 약 2분). 이미지 레지스트리 푸시는 배포 대상이 정해지면 추가
 
 [ ] 5-4. README 및 포트폴리오 문서화
     - 아키텍처 다이어그램 작성
@@ -1405,7 +1455,11 @@ goodjob/
 ├── requirements.txt      ← 전체 패키지 목록
 ├── requirements.lock.txt ← 검증된 전체 버전 고정본
 ├── .streamlit/config.toml← Streamlit 설정 (localhost 전용)
-├── docker-compose.yml    ← 서비스 전체 실행
+├── Dockerfile            ← API / Streamlit 공용 이미지 (빌드 대상 api, frontend)
+├── .dockerignore         ← .env·DB·학습 데이터 제외
+├── docker-compose.yml    ← api + frontend + chroma + redis (+ mlflow 선택)
+├── requirements-app.txt  ← Docker 실행용 패키지 (lock 과 함께 설치)
+├── scripts/docker_smoke.py ← CI 컨테이너 동작 확인
 ├── PROJECT_DOCS.txt      ← 이 문서
 │
 ├── config/
@@ -1475,7 +1529,7 @@ goodjob/
 ├── n8n/
 │   └── workflows/        ← 워크플로우 3종 (n8n 앱 내 실행 미검증)
 │
-├── tests/                ← pytest 자동 테스트 118개 (외부 API·실제 DB 미사용)
+├── tests/                ← pytest 자동 테스트 121개 (외부 API·실제 DB 미사용)
 │   └── conftest.py       ← 가짜 LLM·임베딩, 네트워크 차단, 임시 Chroma
 ├── pytest.ini            ← tests/ 만 수집
 ├── requirements-dev.txt  ← requirements.txt + pytest

@@ -29,10 +29,22 @@ PRIVATE_COLLECTION_NAME = "goodjob_profile_local"
 # opening the same SQLite file concurrently (causes segfault on Windows).
 # 경로별로 하나씩 유지 — 예전에는 첫 경로의 클라이언트를 모든 경로에 재사용해서
 # VectorStore(persist_dir=다른경로) 가 무시되는 버그가 있었음 (PROJECT_DOCS #009)
-_shared_clients: dict[str, chromadb.PersistentClient] = {}
+_shared_clients: dict[str, chromadb.ClientAPI] = {}
 
 
-def _get_client(persist_dir: str) -> chromadb.PersistentClient:
+def _get_client(persist_dir: str) -> chromadb.ClientAPI:
+    # CHROMA_HOST 가 있으면 Chroma 서버에 접속 — 로컬 파일 모드는 단일 프로세스 전용이라
+    # 다른 프로세스가 쓴 벡터를 검색하지 못함 (PROJECT_DOCS #024)
+    if settings.CHROMA_HOST:
+        key = f"http://{settings.CHROMA_HOST}:{settings.CHROMA_PORT}"
+        if key not in _shared_clients:
+            _shared_clients[key] = chromadb.HttpClient(
+                host=settings.CHROMA_HOST,
+                port=settings.CHROMA_PORT,
+                settings=ChromaSettings(anonymized_telemetry=False),
+            )
+        return _shared_clients[key]
+
     key = os.path.abspath(persist_dir)
     if key not in _shared_clients:
         _shared_clients[key] = chromadb.PersistentClient(
