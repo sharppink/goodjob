@@ -307,8 +307,10 @@ class ProfileLoader:
         except ImportError as exc:
             raise ImportError("PyMuPDF가 필요합니다: pip install pymupdf") from exc
 
+        # 경로 대신 바이트로 연다: 손상된 PDF 는 fitz.open(경로) 생성자 단계에서 실패하면서
+        # Windows 파일 핸들을 남겨, 업로드 임시 파일을 지우지 못함 (PROJECT_DOCS #022)
         pages: list[str] = []
-        with fitz.open(str(file_path)) as doc:
+        with fitz.open(stream=file_path.read_bytes(), filetype="pdf") as doc:
             for page in doc:
                 pages.append(page.get_text())
 

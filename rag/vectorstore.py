@@ -117,7 +117,8 @@ class VectorStore:
 
         embeddings = self._embedding_model.embed_texts(docs)
         ids = [f"doc_{uuid.uuid4().hex}" for _ in docs]
-        metadatas = metadatas or [{}] * len(docs)
+        # chromadb 1.x 는 빈 metadata dict 를 거부하므로 기본값을 채움 (PROJECT_DOCS #021)
+        metadatas = [m or {"source": "unspecified"} for m in (metadatas or [{}] * len(docs))]
 
         self._collection.add(  # type: ignore[union-attr]
             documents=docs,
