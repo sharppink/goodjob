@@ -27,6 +27,15 @@ load_dotenv(ROOT / ".env")
 
 import streamlit as st
 
+# Streamlit Community Cloud 는 API 키를 .env 대신 Secrets 로 받음 → config.settings 가
+# 처음 로드되기 전에 환경변수로 옮김 (로컬에 secrets.toml 이 없으면 건너뜀, .env 값이 우선)
+try:
+    for _key, _value in st.secrets.items():
+        if isinstance(_value, (str, int, float, bool)):
+            os.environ.setdefault(_key, str(_value))
+except Exception:
+    pass
+
 # ------------------------------------------------------------------ #
 # 페이지 설정 (반드시 첫 번째 st 호출)                                 #
 # ------------------------------------------------------------------ #
@@ -166,6 +175,16 @@ def _refresh_profile_status() -> None:
     st.session_state["profile_chunk_count"] = count
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _ollama_reachable() -> bool:
+    """Ollama 서버 응답 여부 (1분 캐시 — 매 rerun 마다 접속 시도하지 않도록)."""
+    try:
+        import httpx
+        return httpx.get(f"{_settings.OLLAMA_BASE_URL}/api/tags", timeout=2.0).status_code == 200
+    except Exception:
+        return False
+
+
 def _missing_local_models() -> list[str]:
     """보호 모드에 필요한 Ollama 모델 중 설치되지 않은 것."""
     needed = [_settings.PRIVACY_PARSER_MODEL, _settings.PRIVACY_CHAT_MODEL, _settings.PRIVACY_EMBED_MODEL]
@@ -194,9 +213,12 @@ def render_sidebar() -> str:
         st.markdown("## 💼 GoodJob")
         st.caption("AI 기반 채용 매칭 & 이력서 생성")
 
+        ollama_ok = _ollama_reachable()
         privacy = st.toggle(
             "🔒 개인정보 보호 모드",
             value=st.session_state["privacy_mode"],
+            # Ollama 가 없는 환경(클라우드 배포 등)에서는 켤 수 없음. 이미 켜진 상태면 끌 수는 있게 둠
+            disabled=not ollama_ok and not st.session_state["privacy_mode"],
             help=(
                 "켜면 프로필·이력서가 이 PC 밖으로 나가지 않습니다. "
                 "공고 파싱은 파인튜닝 sLLM(goodjob-parser), 분석·이력서는 로컬 Qwen2.5-7B, "
@@ -214,6 +236,8 @@ def render_sidebar() -> str:
                 st.warning("필요한 로컬 모델이 없습니다:\n" + "\n".join(f"- {m}" for m in missing))
         else:
             st.caption("OpenAI gpt-4o 사용 중")
+            if not ollama_ok:
+                st.caption("보호 모드는 로컬 Ollama 가 실행 중인 PC 에서만 사용할 수 있습니다.")
         st.divider()
 
         pages = ["프로필 등록", "공고 입력", "분석 & 이력서", "자소서 문항", "공고 추천"]
