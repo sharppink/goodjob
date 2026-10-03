@@ -59,7 +59,7 @@
 - Tavily 개발 키 사용량 한도 도달 → 회사 검색·공고 추천·데이터 수집 일시 불가 (#017)
 - pytest 121개 + Docker(docker compose) 구성 완료, GitHub Actions 가 PR·main 푸시마다
   테스트와 컨테이너 빌드·동작 확인 실행 (5-1·5-2·5-3 완료, #021~#024 수정)
-- 남은 작업: Phase 5-4 README·포트폴리오 문서, 학습 데이터 목록 페이지 정리 후 재학습(선택)
+- README.md 작성 (5-4). 남은 작업: 데모 GIF, Tavily 키 교체, 학습 데이터 목록 페이지 정리 후 재학습(선택)
 
 
 ================================================================
@@ -1434,11 +1434,13 @@ Phase 5. 배포 및 마무리
         API·Streamlit 헬스, Chroma·Redis 연결, 컨테이너 간 벡터 공유, 한국어 PDF, Chromium 실행
         (scripts/docker_smoke.py, 약 2분). 이미지 레지스트리 푸시는 배포 대상이 정해지면 추가
 
-[ ] 5-4. README 및 포트폴리오 문서화
-    - 아키텍처 다이어그램 작성
-    - 기술 선택 이유 기록 (이 문서 3·4장 + 트러블슈팅 기록 활용)
-    - 측정 결과 표 (RAGAS, 파인튜닝 비교)
-    - 데모 GIF 또는 영상 첨부
+[완료 2026-10-04] 5-4. README 및 포트폴리오 문서화 (README.md)
+    - 아키텍처 다이어그램 2종 (에이전트 파이프라인, docker compose 실행 구성 — mermaid)
+    - 기술 스택과 선택 이유, 측정 결과 표 (RAGAS 설정 비교, 파인튜닝 로컬 비교, 보호 모드 검증)
+    - 트러블슈팅 대표 사례 6건 (#007 #008 #009 #010 #020 #024)
+    - 실행 방법 (Docker / 로컬 / 보호 모드 / 테스트), API 목록, 한계와 다음 단계
+    - 기존 chroma_db 가 Chroma 서버 모드에서 그대로 열리는지 복사본으로 확인 (README 의 Docker 안내 근거)
+    - [ ] 데모 GIF 또는 영상 — 앱 실행 화면 녹화 필요 (실제 OpenAI 호출 발생)
 
 [완료 2026-10-04] 5-5. 최신 변경 GitHub 반영
     - PR #1 (10-03 작업) 은 main 반영 완료
@@ -1460,6 +1462,7 @@ goodjob/
 ├── docker-compose.yml    ← api + frontend + chroma + redis (+ mlflow 선택)
 ├── requirements-app.txt  ← Docker 실행용 패키지 (lock 과 함께 설치)
 ├── scripts/docker_smoke.py ← CI 컨테이너 동작 확인
+├── README.md             ← 프로젝트 소개 (아키텍처·측정 결과·실행 방법)
 ├── PROJECT_DOCS.txt      ← 이 문서
 │
 ├── config/
