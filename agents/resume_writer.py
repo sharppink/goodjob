@@ -111,9 +111,9 @@ def build_resume_prompt(state: GoodJobState) -> tuple[str, str]:
 
 def stream_resume_writer(state: GoodJobState):
     """이력서 초안을 토큰 단위로 스트리밍합니다 (Streamlit st.write_stream 용)."""
-    from llm.openai_client import OpenAIClient
+    from llm.factory import get_chat_client
     prompt, system = build_resume_prompt(state)
-    client = OpenAIClient()
+    client = get_chat_client()
     yield from client.stream(prompt=prompt, system=system, max_tokens=3000)
 
 
@@ -126,8 +126,8 @@ def resume_writer_node(state: GoodJobState) -> GoodJobState:
     prompt, system = build_resume_prompt(state)
 
     try:
-        from llm.openai_client import OpenAIClient
-        client = OpenAIClient()
+        from llm.factory import get_chat_client
+        client = get_chat_client()
         resume_draft = client.generate(
             prompt=prompt,
             system=system,

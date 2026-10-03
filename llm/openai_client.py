@@ -43,6 +43,22 @@ def _get_openai_client(api_key: str):
     return _shared_openai
 
 
+class PrivacyModeError(RuntimeError):
+    """개인정보 보호 모드에서 외부(OpenAI) 호출을 시도했을 때 발생."""
+
+
+def _assert_openai_allowed() -> None:
+    """
+    개인정보 보호 모드면 OpenAI 호출을 차단합니다.
+
+    각 기능이 로컬 클라이언트로 전환되도록 구현했지만, 놓친 경로가 있어도
+    데이터가 외부로 나가지 않도록 마지막 방어선 역할을 합니다.
+    """
+    from config.settings import settings
+    if settings.PRIVACY_MODE:
+        raise PrivacyModeError("개인정보 보호 모드에서는 OpenAI API 를 호출할 수 없습니다.")
+
+
 class OpenAIClient:
     """
     OpenAI Python SDK 래퍼.
@@ -62,6 +78,7 @@ class OpenAIClient:
         api_key: Optional[str] = None,
         model: str = DEFAULT_MODEL,
     ) -> None:
+        _assert_openai_allowed()  # 클라이언트 생성 단계부터 차단
         self._api_key = api_key or settings.OPENAI_API_KEY
         self._model = model
         self._client = self._build_client()
@@ -98,6 +115,7 @@ class OpenAIClient:
             0에 가까울수록 결정적, 1에 가까울수록 창의적.
         """
         logger.debug("[OpenAIClient] generate() (model=%s)", self._model)
+        _assert_openai_allowed()
 
         messages = []
         if system:
@@ -130,6 +148,7 @@ class OpenAIClient:
             이미지 파일 경로 (PNG, JPEG, WEBP, GIF).
         """
         logger.debug("[OpenAIClient] generate_with_vision() for: %s", image_path)
+        _assert_openai_allowed()
         image_data, media_type = self._encode_image(image_path)
 
         messages = []
@@ -183,6 +202,7 @@ class OpenAIClient:
             ``schema`` 타입의 인스턴스.
         """
         logger.debug("[OpenAIClient] generate_structured() (model=%s)", self._model)
+        _assert_openai_allowed()
 
         messages = []
         if system:
@@ -212,6 +232,7 @@ class OpenAIClient:
             순차적인 텍스트 델타 청크.
         """
         logger.debug("[OpenAIClient] stream() called.")
+        _assert_openai_allowed()
 
         messages = []
         if system:

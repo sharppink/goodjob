@@ -1,15 +1,17 @@
 ================================================================
   GOODJOB - 프로젝트 문서
   작성일: 2026-10-02
+  최종 갱신: 2026-10-04
   작성자: GoodJob 개발팀
 ================================================================
 
 ----------------------------------------------------------------
 목차
 ----------------------------------------------------------------
+요약. 진행 요약 및 핵심 수치 (2026-10-02 ~ 10-04)
 0. 실제 개발 중 발생한 문제 기록 (최신순)
 1. 프로젝트 개요
-2. 현재 구현된 기능 (2026-10-03 코드 기준 갱신)
+2. 현재 구현된 기능 (2026-10-04 기준)
 3. 사용 기술 상세 (이유 / 장점 / 단점 / 예상 문제)
 4. 추가 적용된 기술 A/B/C
 5. 앞으로 진행해야 할 과정
@@ -18,11 +20,120 @@
 
 
 ================================================================
+요약. 진행 요약 및 핵심 수치 (2026-10-02 ~ 10-04)
+================================================================
+
+진행 타임라인
+-------------
+10-02  초기 스캐폴딩, API 키 연결, BGE-M3 → OpenAI 임베딩 전환 (#001~#005)
+10-03  환경 구성(.venv, 버전 고정), 구조 개선(API 블로킹·URL 수집·세션 저장소),
+       품질 개선(환각 원인 = RAG 청킹 버그 수정), STAR·면접 질문·자소서 기능,
+       RAGAS 평가로 리랭커 비활성 결정, n8n 워크플로우,
+       sLLM 학습 데이터 수집·정리 (#006~#017)
+       GitHub PR #1 → main 반영 (커밋 3f21819, 26b74e5, 머지 6bd0913)
+10-04  Colab 파인튜닝(Qwen2.5-7B QLoRA) → GGUF → 로컬 Ollama 비교 평가,
+       개인정보 보호 모드(전체 로컬 처리) 구현 (#018~#020)
+
+핵심 수치 (포트폴리오 근거)
+---------------------------
+- RAG 검색 (RAGAS, 평가 프로필 16청크 / 질문 10개)
+    context_recall: vector_top5 0.90 / rerank_top5 0.65 → 리랭커 기본 비활성 (#010)
+- 이력서 환각 제거 (#007)
+    원인: 프로필 청킹이 "Experience: ..." 한 줄 내용을 버려 경력이 저장되지 않음
+    수정 후: 실제 회사·기간·수치만 사용 (가짜 회사 "테스트컴퍼니 2020~" 등 제거)
+- sLLM 공고 파서 (gpt-4o 응답 기반 증류, train 208 / eval 21, 로컬 Ollama·JSON 모드)
+    base qwen2.5:7b → goodjob-parser
+      preferred_skills_f1 0.593 → 0.731 / keywords_f1 0.487 → 0.592
+      experience_years    0.810 → 0.905 / required_skills_f1 0.681 → 0.645
+      json_valid·공고판정·회사명·직무명: 동일 / 8.5초 → 7.6초/건
+    상세: finetune/results/local_eval_20261004.md (#020)
+- 개인정보 보호 모드: OpenAI SDK 를 차단한 상태에서 전체 파이프라인 정상 동작 (67초)
+
+현재 상태 / 남은 일
+-------------------
+- 로컬에만 있고 GitHub 에 미반영: #018~#020 수정, 개인정보 보호 모드, 평가 결과 문서
+- Tavily 개발 키 사용량 한도 도달 → 회사 검색·공고 추천·데이터 수집 일시 불가 (#017)
+- 남은 작업: Phase 5 (Dockerfile, pytest, CI, README), 학습 데이터 목록 페이지 정리 후 재학습(선택)
+
+
+================================================================
 0. 실제 개발 중 발생한 문제 기록 (최신순)
 ================================================================
 
 이 섹션은 실제 개발/테스트 중 발생한 문제를 기록합니다.
 동일 문제 재발 방지 및 포트폴리오 트러블슈팅 근거 자료로 활용합니다.
+
+────────────────────────────────────────────────────────────────
+[2026-10-04] #020 파인튜닝 모델 로컬 평가 — 공고판정·회사명 하락은 목록 페이지 1건 때문
+────────────────────────────────────────────────────────────────
+발생 위치  : finetune/eval_local.py (Ollama, JSON 모드, eval 23건)
+증상       : 파인튜닝 모델이 base 대비 is_job_posting 0.957→0.913,
+             company_name 0.957→0.913, job_title 0.826→0.783 으로 하락
+원인       : 오답 사례를 하나씩 확인해 보니 전부 eval 의 같은 1건 —
+             사람인 직무 카테고리 목록 페이지(/jobs/list/job-category?cat_kewd=291).
+             gpt-4o 라벨은 "공고(메타빌드)" 였지만 실제로는 목록 페이지라 파인튜닝 모델의
+             "비공고" 판단이 오히려 타당. 비공고로 판정하면서 회사명·직무명을 비워
+             세 지표가 동시에 감점됨.
+             근본 원인: 수집 단계 목록 URL 필터에 /jobs/list/ 경로가 빠져 있었음
+             → train 13건 / eval 2건 유입, 라벨도 불일치 (15건 중 3건만 "공고")
+해결 방법  : - _is_listing_url 에 /list/, cat_kewd= 패턴 추가 (다음 수집부터 제외)
+             - 목록 페이지 2건 제외 21건으로 재계산 (저장된 예측 재사용, 모델 재실행 없음)
+결과 (21건): base → fine-tuned
+             preferred_skills_f1 0.593 → 0.731 (+0.138)
+             keywords_f1         0.487 → 0.592 (+0.105)
+             experience_years    0.810 → 0.905 (+0.095)
+             required_skills_f1  0.681 → 0.645 (-0.036)
+             json_valid / 공고판정 / 회사명 / 직무명 / 중국어 혼입 없음: 동일
+             속도 8.5초 → 7.6초/건
+             상세: finetune/results/local_eval_20261004.md
+현재 상태  : 평가 완료. train 의 목록 페이지 13건은 재학습 시 제거 필요
+교훈       : 지표가 떨어지면 평균만 보지 말고 오답 사례를 직접 확인할 것 —
+             이번 하락은 모델 문제가 아니라 데이터 1건의 라벨 문제였음
+
+────────────────────────────────────────────────────────────────
+[2026-10-04] #019 Colab 학습 후 GGUF 모델 파일이 생성되지 않음 + 라벨 표기 불일치
+────────────────────────────────────────────────────────────────
+발생 위치  : finetune/colab_finetune.ipynb 5번 셀, gpt-4o 라벨의 remote_policy 등
+증상       : 1) 학습은 끝났지만 Drive 에 goodjob-parser.Q4_K_M.gguf 가 없음
+             2) 파인튜닝 모델이 remote_policy 에 "자율 복장 근무" 출력
+원인       : 1) 노트북 5번 셀 기본값이 파일럿용(EXPORT=False, EVAL_LIMIT=5)이라
+                값을 바꾸지 않고 실행하면 GGUF 를 만들지 않음 (평가도 5건만 수행)
+             2) teacher 라벨 자체가 제각각 — 빈 값을 ''/'상세 불명'/'정보 없음'/'N/A' 로
+                섞어 쓰고, remote_policy 에 유연근무제·탄력근무제·시차출퇴근제 같은
+                근무시간 제도가 섞여 있었음 → 학생 모델이 "아무 근무 제도나 적는" 패턴을 학습
+해결 방법  : 1) 노트북 기본값을 본 학습 설정(EPOCHS=2, eval 전체, EXPORT=True)으로 변경,
+                설정 확인 출력 + EXPORT=False 면 중단하는 assert 추가.
+                GGUF 내보내기 실패 시에도 LoRA·리포트는 저장하고 실패 사유를 기록
+             2) normalize_requirements(): 빈 값 표기 통일, remote_policy 를
+                출근/재택/하이브리드/"" 로 규칙 정규화. OpenAI·로컬 출력과 학습 라벨에
+                모두 같은 함수 적용 (재라벨링 비용 없음)
+                결과 분포: '' 119 / 출근 77 / 하이브리드 34 / 재택 1
+             3) 로컬 지시문에 "원문 언어로만, 중국어 금지, 원문에 없는 내용 금지,
+                remote_policy 는 근무 형태만" 추가 → finalize 단계에서 학습 데이터에 반영
+             4) 앱 안전장치: 로컬 모델 출력에서 중국어 감지 시 OpenAI 로 재파싱 (#018)
+현재 상태  : 수정 완료 — Colab 재학습 대기
+
+────────────────────────────────────────────────────────────────
+[2026-10-04] #018 파인튜닝 모델 출력에 중국어 혼입 + Colab 평가 조건 차이
+────────────────────────────────────────────────────────────────
+발생 위치  : Colab 파인튜닝 결과 (finetune/train.py run_all) 예측 예시
+증상       : 1) company_culture 에 "4,000余家客户使用了我们的API，我们致力于提供高质量的服务。"
+                — 한국어 공고인데 중국어 문장이 섞이고, 원문에 없는 내용일 가능성
+             2) remote_policy 에 "자율 복장 근무" (복장 규정 ≠ 근무 형태)
+             3) Colab 결과표 base json_valid 0.600 — 로컬 Ollama 기준선은 1.000
+원인       : 1) Qwen 계열 모델의 알려진 언어 혼입 현상 (긴 서술형 필드에서 발생)
+             3) Colab 평가는 제약 없는 생성, 앱은 Ollama JSON 모드(format=json) 사용
+                → Colab 의 base 대비 개선폭은 과장됨. 결과표 수치가 0.2 단위라
+                  eval 5건(파일럿 설정)으로 돈 것으로 보임
+해결 방법  : - metrics.no_chinese_leak 지표 추가 (한자 4자 연속 또는 ，。 등 중국어 문장부호)
+               gpt-4o 정답 231건에서 오탐 0건 확인
+             - 공정 비교는 로컬 Ollama + JSON 모드 + eval 23건으로 수행 예정
+             - (예정) 로컬 출력에서 중국어 감지 시 OpenAI 로 재파싱하는 안전장치
+현재 상태  : 조사 중 — GGUF 로컬 등록 후 혼입 빈도 측정 대기
+Colab 결과 (참고, eval 5건 추정, 제약 없는 생성):
+             base → finetuned: json_valid 0.60→1.00, keywords_f1 0.30→0.68,
+             experience_years 0.60→1.00, required_skills_f1 0.40→0.60,
+             preferred_skills_f1 0.52→0.54, train_loss 0.207
 
 ────────────────────────────────────────────────────────────────
 [2026-10-03] #017 Tavily 사용량 한도 초과로 학습 데이터 수집 중단 (600 목표 → 299)
@@ -430,31 +541,43 @@ Step 4. AI 에이전트가 공고와 프로필을 비교하여 적합도 점수(
 Step 5. 적합도가 충분하면 해당 공고에 최적화된 이력서 자동 생성
 Step 6. 사용자가 이력서를 다운로드하거나 수정 요청 가능
 
+부가 기능
+---------
+- STAR 경험 정리, 면접 예상 질문 + 답변 전략, 자소서 문항별 작성 (글자수 검증)
+- 공고 추천 (키워드 → 공고 수집 → 적합도 랭킹)
+- 개인정보 보호 모드: 프로필이 PC 밖으로 나가지 않는 전체 로컬 처리
+  (파인튜닝 sLLM + 로컬 Qwen2.5-7B + 로컬 bge-m3)
+
 개발 목표
 ---------
 - 포트폴리오용 AI 프로젝트로서 다양한 최신 기술 적용
 - LangGraph 에이전트 / RAG / 프롬프트 엔지니어링 / sLLM 파인튜닝 포함
 - 한국어 채용 시장에 특화된 모델 및 데이터 파이프라인 구성
+- 기술 선택은 측정으로 결정 (RAGAS, 파싱 지표, 로컬 비교 평가)
 
 
 ================================================================
-2. 현재 구현된 기능 (스캐폴딩 완료)
+2. 현재 구현된 기능 (2026-10-04 기준)
 ================================================================
 
 [완료] 핵심 로직 구현
 --------------------------------------
 초기 스캐폴딩 이후 아래 모듈들의 실제 로직이 모두 구현됨.
 (2026-10-03 코드 리뷰로 확인. 이전 문서의 '스텁' 표기는 오래된 정보였음)
-LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
-초기 설계의 흔적이며 llm/claude_client.py 는 OpenAIClient 의 별칭일 뿐.
+LLM 기본값은 OpenAI (gpt-4o / gpt-4o-mini). 개인정보 보호 모드에서는 전부 로컬 Ollama.
+'Claude' 명칭은 초기 설계의 흔적이며 llm/claude_client.py 는 OpenAIClient 의 별칭일 뿐.
 
 [완료] agents/ - LangGraph 에이전트 파이프라인
 ----------------------------------------------
 - state.py       : 전체 에이전트 공유 상태(GoodJobState) 정의 완료
-- graph.py       : 5개 노드 + 조건부 라우팅(fit_score < 0.3 → 조기종료) 완료
+- graph.py       : 6개 노드 + 조건부 라우팅(fit_score < 0.3 → 조기종료) 완료
+                   job_parser → rag_retriever → fit_analyzer → resume_writer → reviewer → interview_coach
 - job_parser.py  : 채용공고 → JobRequirements 구조화 (Structured Output) 완료
-- rag_retriever  : 다각도 쿼리(최대 4개) → 벡터 검색 + Reranker 완료
-- fit_analyzer   : 적합도 점수 + 갭 분석 노드 (프롬프트 작성 완료)
+                   공고 원문 정제(clean_posting_text), 라벨·출력 정규화(normalize_requirements),
+                   로컬 sLLM 경로(중국어 혼입 감지 → 폴백), 개인정보 보호 모드 경로(parse_privately)
+- rag_retriever  : 작은 프로필(12청크 이하)은 전체 사용, 큰 프로필은 다각도 쿼리 검색 (#008)
+- fit_analyzer   : Structured Output(FitAnalysis) + 단계별 추론(CoT) + 점수 루브릭
+                   + matched/missing_skills 산출 완료
 - resume_writer  : 맞춤 이력서 초안 생성 + 스트리밍 버전 완료
 - reviewer.py    : 6항목 체크리스트 자기검토 + 스트리밍 버전 완료
 - job_recommender: 역방향 매칭(키워드 → 공고 수집 → 공고 판정 → 적합도 랭킹) 완료
@@ -465,45 +588,74 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
 [완료] rag/ - 벡터 검색 시스템
 -------------------------------
 - vectorstore.py   : Chroma DB 연결, CRUD 메서드 완료
-- embeddings.py    : OpenAI text-embedding-3-small 기본 / BGE-M3 전환 가능 완료
-- profile_loader.py: PDF 파싱 + 딕셔너리 입력 → 청킹 → 저장 완료
-- reranker.py      : BGE Cross-encoder 2단계 재정렬 완료
+                     컬렉션 분리: goodjob_profile(일반) / goodjob_profile_local(보호 모드)
+                     경로별 클라이언트 캐시, UUID 문서 ID (#009)
+- embeddings.py    : OpenAI text-embedding-3-small 기본 / 보호 모드는 Ollama bge-m3
+- profile_loader.py: PDF 파싱 + 딕셔너리 입력 → 섹션 청킹 → 저장 완료 (헤더 줄 소실 버그 수정 #007)
+                     STAR 경험 추가 저장 (load_star_experiences)
+- reranker.py      : BGE Cross-encoder 2단계 재정렬 (RAGAS 측정 결과 기본 비활성 #010)
 - evaluator.py     : RAGAS 0.4 품질 평가 완료
 - eval_rag.py      : 검색 설정 비교 실험 스크립트 (python -m rag.eval_rag)
 
 [완료] llm/ - LLM 레이어
 ------------------------
 - openai_client.py : OpenAI API 텍스트/비전/스트리밍/Structured Output 완료
+                     429 재시도(max_retries=8), 보호 모드 차단(PrivacyModeError)
 - claude_client.py : 하위 호환용 별칭 (OpenAIClient 그대로 사용)
-- local_llm.py     : Ollama 로컬 LLM 클라이언트 완료
+- local_llm.py     : Ollama 클라이언트 — LocalLLM(JSON 모드) / LocalChatClient(OpenAIClient 와 같은
+                     인터페이스, 구조화 출력 지원), num_ctx 8192
+- factory.py       : get_chat_client() — 모드에 따라 OpenAI / 로컬 클라이언트 반환
 - router.py        : 작업 복잡도별 자동 LLM 라우팅 완료
 
 [완료] search/ - 검색 및 크롤링
 --------------------------------
-- company_searcher.py : Tavily 회사/공고 검색 + gpt-4o-mini 요약 완료
+- company_searcher.py : Tavily 회사/공고 검색 + 요약 완료 (검색 연도 자동, 보호 모드는 로컬 요약)
 - image_parser.py     : OpenAI Vision (gpt-4o) 회사명/공고 추출 완료
 - job_scraper.py      : Playwright 원티드/사람인/잡코리아 크롤링 완료
 - pipeline.py         : 이미지/회사명 → 공고 텍스트 통합 파이프라인 완료
 
 [완료] finetune/ - sLLM 파인튜닝
 ---------------------------------
-- train.py        : Unsloth + LoRA 학습 파이프라인 완료
-- inference.py    : LoRA 체크포인트 추론 코드 완료 (실행 이력 없음)
-- data_collector.py: Tavily 수집 + 합성 데이터 생성 코드 완료 (실행 이력 없음)
-- mlflow_logger.py : MLflow 실험 추적 완료
+- data_collector.py : 실제 공고 수집 + gpt-4o 라벨링 + 중복·비공고 정리 (231건 생성 완료)
+- train.py          : Unsloth QLoRA 학습 + 평가 + GGUF 내보내기 (Colab 에서 실행 완료)
+- metrics.py        : 파싱 평가 지표 (퍼지 F1, 중국어 혼입 탐지 등)
+- colab_finetune.ipynb : Colab 실행 노트북
+- eval_local.py     : Ollama 로컬 비교 평가 (실행 완료)
+- inference.py      : Colab 에서 LoRA 스팟 체크용
+- ollama/Modelfile  : GGUF → Ollama 등록 (goodjob-parser 등록 완료)
+- results/          : finetune_report_20261004.json, local_eval_20261004.md
+- mlflow_logger.py  : MLflow 실험 추적 코드 (아직 학습에 연결하지 않음)
 
 [완료 - Phase 2] frontend/ - Streamlit UI
 ------------------------------------------
 - app.py : 백엔드(FastAPI) 없이 LangGraph 에이전트를 직접 호출하는 standalone 웹앱
   · 페이지 1: 프로필 등록 (PDF 업로드 or 직접 입력 → 벡터 DB 저장)
   · 페이지 2: 공고 입력 (텍스트 붙여넣기 / 이미지 분석 / Tavily 자동 검색)
-  · 페이지 3: 분석 & 이력서 (노드별 실시간 진행 표시 + 결과 렌더링)
-  · 페이지 4: 공고 추천 (job_recommender 결과 카드 UI)
-  · 기술 매칭 시각화: 필수/우대 기술을 보유/미보유로 색상 구분
+  · 페이지 1 하단: STAR 경험 정리 (변환 → 확인 → 프로필에 추가)
+  · 페이지 3: 분석 & 이력서 (노드별 실시간 진행 표시 + 결과 렌더링 + 면접 예상 질문)
+  · 페이지 4: 자소서 문항 (글자수 지표, 직접 수정, txt 저장)
+  · 페이지 5: 공고 추천 (job_recommender 결과 카드 UI)
+  · 사이드바: 🔒 개인정보 보호 모드 토글 + 로컬 모델 설치 상태 표시
+  · 기술 매칭 시각화: fit_analyzer 판정(matched/missing) 기준으로 보유/미보유 표시
   · 이력서 초안 vs 최종본 탭 비교 + Markdown 다운로드
   · 커스텀 CSS로 다크 사이드바 + 카드 레이아웃 적용
   실행: .venv\Scripts\python -m streamlit run frontend/app.py
         (.streamlit/config.toml 로 localhost 전용 바인딩)
+
+[완료 2026-10-04] 개인정보 보호 모드 (전체 로컬 처리)
+--------------------------------------------------
+- Streamlit 사이드바 "🔒 개인정보 보호 모드" 토글 (기본값은 .env PRIVACY_MODE, API 도 이 값을 따름)
+- ON 이면 프로필·이력서가 PC 밖으로 나가지 않음:
+    공고 파싱      → 파인튜닝 sLLM goodjob-parser (실패·중국어 혼입 시 로컬 qwen2.5:7b)
+    적합도·이력서·교정·면접·STAR·자소서·검색요약 → 로컬 qwen2.5:7b (llm/factory.get_chat_client)
+    임베딩         → Ollama bge-m3 (1024차원), 별도 컬렉션 goodjob_profile_local
+    LangSmith 추적 → 끔 / 이미지 공고 분석(OpenAI Vision) → 비활성 안내
+- 안전장치: OpenAIClient 생성·호출과 OpenAI 임베딩에서 PrivacyModeError 로 차단
+  (놓친 경로가 있어도 외부 전송이 일어나지 않도록 하는 마지막 방어선)
+- 검증: OpenAI SDK 를 "생성 시 실패"로 바꿔 놓고 전체 그래프 6노드·STAR·자소서 실행 → 정상 (67초),
+  일반 모드 인덱스 영향 없음, UI 토글·페이지 전환 예외 없음
+- 한계: 로컬 7B 모델이라 문장 품질이 gpt-4o 보다 낮고(예: 자소서 문체), 처리 속도가 느림.
+  회사 검색(Tavily)은 회사명·키워드만 외부로 전송 (개인정보 아님)
 
 [완료] api/ - FastAPI 서버
 --------------------------
@@ -518,6 +670,7 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
 [완료] config/ - 설정 관리
 ---------------------------
 - settings.py : 모든 환경변수 Pydantic 검증 완료
+                (PRIVACY_MODE / PRIVACY_*_MODEL / PARSE_WITH_LOCAL_LLM / USE_OPENAI_EMBEDDINGS 등)
 - tracing.py  : LangSmith 자동 초기화 완료
 
 [완료] 인프라
@@ -526,6 +679,7 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
 - requirements.txt : 전체 패키지 목록 (openai==1.84.0 고정)
 - requirements.lock.txt: 검증된 전체 버전 고정본 (pip freeze, 2026-10-03)
 - docker-compose.yml: api + frontend + redis + mlflow 구성 (Dockerfile 미작성)
+- 로컬 모델 (Ollama 0.35.1): goodjob-parser, qwen2.5:7b, bge-m3 설치 완료
 - .gitignore       : 민감 파일/대용량 파일 제외 설정 완료
 
 
@@ -573,12 +727,14 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
 
 단점
   - 청킹 전략에 따라 중요한 경험이 잘릴 수 있음
-  - 임베딩 모델 로딩 시간 (BGE-M3 초기 구동 약 30초)
+  - 로컬 임베딩 사용 시 별도 모델 필요 (현재: 기본 OpenAI, 보호 모드는 Ollama bge-m3)
   - 벡터 유사도만으로는 맥락 파악에 한계
 
-예상 문제
-  - BGE-M3 모델 다운로드 실패 (약 2.4GB, 네트워크 이슈)
-    → 해결: HuggingFace 캐시 디렉토리 확인 또는 미러 사용
+예상 문제 / 실제 발생
+  - BGE-M3 HuggingFace 다운로드 실패 (#003) → OpenAI 임베딩으로 전환,
+    보호 모드는 Ollama 의 bge-m3 사용으로 해결
+  - [실제 발생] 청킹이 "제목: 내용" 한 줄을 버려 경력이 저장되지 않음 (#007)
+  - [실제 발생] 다중 쿼리가 같은 상위 청크만 반환 → 작은 프로필은 전체 사용 (#008)
   - PDF 파싱 오류 (스캔본, 이미지 기반 PDF)
     → 해결: OCR 폴백 (pytesseract 추가) 고려
   - Chroma DB 동시 쓰기 충돌
@@ -601,11 +757,10 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
   - Reranker는 후보 수가 많을수록 느려짐 (O(n) 추론)
   - RAM 사용량 증가 (모델 2개 동시 로딩)
 
-예상 문제
-  - VRAM 부족으로 GPU 연산 불가 시 CPU 폴백 → 속도 저하
-    → 해결: RERANKER_ENABLED=false 설정으로 비활성화 가능
-  - RAG_TOP_K_INITIAL=20 으로 설정 시 Reranker 추론 20회 발생
-    → 해결: 초기값 조정 가능 (.env)
+측정 결과 (2026-10-03, #010)
+  - RAGAS context_recall: 벡터만 0.90 / 리랭커 0.65 — 한국어 IT 이력서에서
+    "XGBoost ↔ 머신러닝" 같은 도구명-분야 연결을 못 해 정답 청크를 밀어냄
+  - → RERANKER_ENABLED 기본값 false
 
 ────────────────────────────────────────────────────────────────
 3-4. OpenAI API
@@ -613,7 +768,7 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
 선택 이유
   - 복잡한 분석(적합도 평가)과 긴 텍스트 생성(이력서)에 최적
   - Vision 기능으로 이미지 → 회사명 추출 가능
-  - 200K 컨텍스트 창으로 긴 이력서도 처리 가능
+  - 128K 컨텍스트로 긴 공고·이력서도 처리 가능 (gpt-4o)
 
 장점
   - 현재 시점 최고 수준의 텍스트 생성 품질
@@ -627,9 +782,9 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
 
 예상 문제
   - API 키 만료 또는 한도 초과
-    → 해결: settings.has_openai_key 체크 후 로컬로 폴백
-  - Rate Limit 초과 (429 에러)
-    → 해결: exponential backoff 재시도 로직 추가 필요
+    → 현재 자동 로컬 폴백은 없음. 개인정보 보호 모드로 전환하면 API 없이 동작
+  - [실제 발생] Rate Limit 초과 (429, gpt-4o 30k TPM)
+    → 해결: SDK 재시도 max_retries=8 (#016)
   - 프롬프트가 길어질수록 비용 급증
     → 해결: RAG로 컨텍스트를 최소화하는 것이 핵심
 
@@ -647,13 +802,18 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
   - 파인튜닝 후 커스텀 모델 교체 용이
 
 단점
-  - GPT-4o에 비해 품질 낮음 (7B vs 수백B)
+  - GPT-4o에 비해 품질 낮음 (특히 긴 글 생성 문체)
   - Ollama 서버를 별도로 실행해야 함
   - 처음 모델 로딩 시 약 10~30초 소요
 
+실측 (2026-10-04, RTX 2060 SUPER 8GB)
+  - qwen2.5:7b Q4_K_M 100% GPU, 공고 파싱 약 8.5초/건
+  - 보호 모드 전체 파이프라인(6노드) 67초
+
 예상 문제
   - Ollama 서버 미실행 시 전체 로컬 처리 실패
-    → 해결: LLMRouter가 자동으로 OpenAI로 폴백
+    → 일반 모드: LLMRouter 가 OpenAI 로 폴백 / 보호 모드: 사이드바에 경고 (외부 폴백 안 함)
+  - [실제 발생] ollama-python 신버전에서 모델 미인식, 기본 컨텍스트 2048 잘림 (#013)
   - 한국어 품질이 영어보다 낮을 수 있음
     → 해결: 파인튜닝으로 한국어 채용공고 특화 가능
   - 14B 모델을 CPU 오프로딩으로 실행 시 속도 매우 느림
@@ -689,13 +849,21 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
 ────────────────────────────────────────────────────────────────
 선택 이유
   - 일반 7B 모델을 한국어 채용공고 파싱에 특화시키기 위함
-  - 이력서 문체 교정에 특화된 모델 필요
   - Unsloth: 동일 VRAM에서 2~5배 빠른 파인튜닝 속도
 
+실제 적용 (2026-10-04)
+  - 방식: gpt-4o 응답 기반 지식 증류 (Stanford Alpaca 계열)
+          실제 공고 원문 + gpt-4o 구조화 라벨 → Qwen2.5-7B-Instruct
+  - 학습: Colab T4 16GB, QLoRA (기본 가중치 4bit 고정 + LoRA r16 어댑터, 약 0.5% 학습),
+          2 epoch, train_loss 0.164
+  - 배포: LoRA 병합 → GGUF Q4_K_M(약 4.4GB) 사후 양자화 → Ollama "goodjob-parser"
+  - 결과: 우대 기술·키워드·경력 추출 +0.10~0.14, 나머지 동일 (#020)
+          gpt-4o 대비 기술 추출은 0.6~0.75 수준 → 기본값은 OpenAI 유지
+
 장점
-  - Unsloth: 4bit 양자화로 8GB VRAM에서 7B 파인튜닝 가능
+  - QLoRA: 4bit 양자화로 무료 Colab T4 에서 7B 학습 가능
   - LoRA: 전체 가중치가 아닌 어댑터만 학습 → 빠르고 저장공간 적음
-  - 파인튜닝 후 특정 태스크 품질이 GPT-4o급으로 향상 가능
+  - 파인튜닝 모델은 오프라인·개인정보 보호 모드에서 API 없이 동작
 
 단점
   - 학습 데이터 수집 및 정제에 많은 시간 필요
@@ -709,7 +877,9 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
   - VRAM 8GB에서 배치 크기 1로도 OOM 발생 가능
     → 해결: gradient_accumulation_steps 늘리고 batch_size=1 유지
   - 학습 데이터 부족 (100개 미만이면 과적합)
-    → 해결: OpenAI API로 합성 데이터 생성 (data_collector.py)
+    → 해결: 실제 공고 수집 + gpt-4o 라벨링 (data_collector.py, 231건)
+  - [실제 발생] 라벨 표기 불일치·base64 노이즈·목록 페이지 혼입 (#014, #015, #019, #020)
+  - [실제 발생] 출력 중국어 혼입 → 지시문 + 감지 후 폴백 (#018)
 
 ────────────────────────────────────────────────────────────────
 3-8. FastAPI + Streamlit
@@ -732,7 +902,7 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
   - Streamlit에서 LLM 스트리밍 응답 표시 시 지연
     → 해결: st.write_stream() 사용
   - FastAPI 비동기 코드에서 동기 LLM 호출 시 블로킹
-    → 해결: asyncio.run_in_executor() 또는 async 클라이언트 사용
+    → 해결 완료: run_in_threadpool 적용 (이력서 생성 76초 동안 /health 0.02초 응답 확인)
 
 
 ================================================================
@@ -762,6 +932,8 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
     → 해결: 개발 시에만 활성화, 프로덕션에서는 false
   - LangSmith API 키 오류 시 앱 시작 실패
     → 해결: config/tracing.py에서 예외 처리로 비활성화
+  - 프로필이 담긴 프롬프트가 외부로 전송됨
+    → 개인정보 보호 모드에서 LANGCHAIN_TRACING_V2=false 로 자동 차단
 
 ────────────────────────────────────────────────────────────────
 [A] Redis (세션 캐시)
@@ -803,8 +975,9 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
   - 평가 결과 해석에 도메인 지식 필요
 
 예상 문제
-  - ragas 버전에 따라 API 변경 가능
-    → 해결: requirements.txt에 버전 고정 필요
+  - [실제 발생] ragas 0.1 → 0.4 API 변경 → evaluator.py 재작성, requirements.lock.txt 로 고정
+  - [실제 발생] 평가 스크립트가 실제 프로필 DB 를 덮어씀 → 임시 DB 명시 주입 (#009)
+결과: 리랭커 기본 비활성 결정의 근거 (#010)
 
 ────────────────────────────────────────────────────────────────
 [B] BGE Reranker (2단계 검색)
@@ -822,9 +995,9 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
   - 후보 문서 수에 비례하여 추론 시간 증가
   - 모델 로딩에 RAM 추가 소모
 
-예상 문제
-  - 로컬 GPU 메모리가 부족할 경우 CPU 추론으로 느려짐
-    → 해결: .env에서 RERANKER_ENABLED=false 로 비활성화 가능
+결과 (#010)
+  - RAGAS 측정에서 recall 0.90 → 0.65 로 하락 → 기본 비활성 (RERANKER_ENABLED=false)
+  - 한국어 자체는 이해하지만 IT 도구명-분야 연결이 약함 — 도메인 리랭커 재실험 여지
 
 ────────────────────────────────────────────────────────────────
 [C] MLflow (파인튜닝 실험 관리)
@@ -842,6 +1015,10 @@ LLM 은 전부 OpenAI 사용 (gpt-4o / gpt-4o-mini). 'Claude' 명칭은
 단점
   - 파인튜닝을 진행하지 않으면 사실상 사용되지 않음
   - MLflow UI 포트(5000)가 macOS AirPlay와 충돌 가능
+
+현재 상태
+  - 학습은 Colab 에서 1회 실행 — 하이퍼파라미터 탐색을 하지 않아 MLflow 는 아직 미연결
+    (결과는 finetune/results/ 의 JSON·MD 로 기록)
 
 예상 문제
   - mlflow_runs 디렉토리 용량 급증
@@ -888,14 +1065,16 @@ TIO vs GoodJob 기능 비교
 채용공고 분석 (키워드 추출)   ✅    ✅        동등
 이력서/자소서 자동 생성       ✅    ✅        동등
 적합도 점수 (0~100%)         ❌    ✅        GoodJob 독자 강점
-STAR 경험 구조화             ✅    ❌        TIO 핵심 기능 - 추가 필요
-경험 재사용 라이브러리        ✅    ❌        추가 필요
-면접 예상 질문 생성          ✅    ❌        추가 필요
-자소서 문항별 작성 모드       ✅    ❌        추가 필요
+STAR 경험 구조화             ✅    ✅        2026-10-03 구현 (빠진 정보는 지어내지 않고 되물음)
+경험 재사용 라이브러리        ✅    △        STAR 경험을 프로필 벡터 DB 에 누적 저장
+면접 예상 질문 생성          ✅    ✅        2026-10-03 구현 (그래프 6번째 노드)
+자소서 문항별 작성 모드       ✅    ✅        2026-10-03 구현 (글자수 코드 검증)
 실시간 첨삭(타이핑 중 AI)    ✅    ❌        Streamlit 한계로 보류
+공고 추천 (역방향 매칭)       ❌    ✅        GoodJob 독자 기능
+개인정보 보호 모드(로컬 처리)  ❌    ✅        2026-10-04 구현 (파인튜닝 sLLM 포함)
 
 ────────────────────────────────────────────────────────────────
-[추가 후보 A] STAR 경험 구조화 (우선순위 1)
+[추가 후보 A] STAR 경험 구조화 (우선순위 1) → 구현 완료 (Phase 2-B-1)
 ────────────────────────────────────────────────────────────────
 개요
   사용자가 경험을 자유 텍스트로 입력하면 AI가
@@ -920,7 +1099,7 @@ STAR 경험 구조화             ✅    ❌        TIO 핵심 기능 - 추가 �
   "단순 경험 입력이 아닌 STAR 기법으로 구조화하여 RAG 품질을 높임"
 
 ────────────────────────────────────────────────────────────────
-[추가 후보 B] 면접 예상 질문 생성 (우선순위 2)
+[추가 후보 B] 면접 예상 질문 생성 (우선순위 2) → 구현 완료 (Phase 2-B-2)
 ────────────────────────────────────────────────────────────────
 개요
   파이프라인 완료 후 resume_final + job_requirements를 기반으로
@@ -940,7 +1119,7 @@ STAR 경험 구조화             ✅    ❌        TIO 핵심 기능 - 추가 �
   - frontend/app.py             : 결과 탭에 면접 코치 섹션 추가
 
 ────────────────────────────────────────────────────────────────
-[추가 후보 C] 자소서 문항별 작성 모드 (우선순위 3)
+[추가 후보 C] 자소서 문항별 작성 모드 (우선순위 3) → 구현 완료 (Phase 2-B-3)
 ────────────────────────────────────────────────────────────────
 개요
   현재 GoodJob은 전체 이력서(Markdown)를 통째로 생성.
@@ -971,19 +1150,19 @@ STAR 경험 구조화             ✅    ❌        TIO 핵심 기능 - 추가 �
 Phase 1. 핵심 기능 구현 (우선순위 최고)
 ────────────────────────────────────────────────────────────────
 
-[코드 완료] 1-1. RAG 시스템 완성
-    - rag/profile_loader.py : PDF → 청크 분할 → Chroma 저장 구현
-    - rag/embeddings.py     : BGE-M3 실제 임베딩 호출 구현
-    - rag/reranker.py       : 이미 완성, 에이전트와 연결 필요
-    - 테스트: 샘플 이력서 PDF 업로드 → 벡터 검색 확인
+[완료] 1-1. RAG 시스템 완성
+    - rag/profile_loader.py : PDF·딕셔너리 → 섹션 청킹 → Chroma 저장 (청킹 버그 수정 #007)
+    - rag/embeddings.py     : OpenAI 임베딩 기본 / 보호 모드 bge-m3
+    - rag/reranker.py       : 연결 완료, RAGAS 측정 후 기본 비활성 (#010)
+    - 검증: 딕셔너리 프로필 저장·검색, RAGAS 평가 (PDF 업로드 API 는 미검증)
 
-[코드 완료] 1-2. 채용공고 수집 파이프라인 구현
+[완료] 1-2. 채용공고 수집 파이프라인 구현 (Tavily 키는 현재 한도 도달 #017)
     - search/company_searcher.py : Tavily API 실제 호출 구현
     - search/image_parser.py     : OpenAI Vision (gpt-4o) 이미지 분석 구현
     - search/job_scraper.py      : 사람인/원티드 크롤링 구현
     - 테스트: "카카오" 입력 → 채용공고 텍스트 수집 확인
 
-[코드 완료] 1-3. LangGraph 노드 로직 구현
+[완료] 1-3. LangGraph 노드 로직 구현 (graph.app.invoke 엔드투엔드 실행 확인)
     - agents/job_parser.py   : 채용공고 → JSON 추출 프롬프트 작성
     - agents/rag_retriever.py: VectorStore + Reranker 연결
     - agents/fit_analyzer.py : 이미 완성 (프롬프트 포함)
@@ -1097,7 +1276,7 @@ Phase 4. sLLM 파인튜닝
 ※ 학습 목표 변경: "공고 → 이력서" 합성 쌍 폐기 → "공고 원문 → JobRequirements JSON"
   (프로필 없이 이력서를 쓰게 학습하면 경력 지어내기를 학습함 — #007 과 같은 문제)
 
-[진행 중] 4-1. 학습 데이터 수집
+[완료] 4-1. 학습 데이터 수집
     - finetune/data_collector.py: Tavily 실제 공고(raw_content) → gpt-4o 라벨(teacher)
       → agents.job_parser.build_local_messages() 로 실제 추론과 같은 채팅 형식 저장
     - 비공고 페이지는 음성 예시로 최대 15% 유지, URL 단위 train/eval 분할
@@ -1114,21 +1293,30 @@ Phase 4. sLLM 파인튜닝
       → 파인튜닝 목표: 기술·키워드 추출(0.50~0.62)과 경력 연수(0.83) 개선
         (회사명·직무명은 프롬프트 개선만으로 0.87~0.96 — 4건 평가 때의 0.25/0.50 은 표본 오차)
     - [ ] 데이터 추가: Tavily 한도 해제 후 --append 로 이어서 수집 가능
+    - [ ] 학습 데이터의 목록 페이지 13건 제거 후 재학습 (선택, #020)
 
-[준비 완료 / Colab 실행 대기] 4-2. 파인튜닝 실행
+[완료 2026-10-04] 4-2. 파인튜닝 실행
     - finetune/train.py: Qwen2.5-7B-Instruct 4bit + LoRA r16, 응답(JSON)에만 loss,
       베이스 평가 → 학습 → 파인튜닝 평가 → GGUF q4_k_m 내보내기
     - finetune/colab_finetune.ipynb + finetune/goodjob_colab.zip (코드+데이터 번들)
     - finetune/metrics.py: json_valid, 공고판정 정확도, 기술/키워드 F1, 경력·직무·회사명 일치
-    - [ ] Colab 파일럿 실행 (흐름 확인) → [ ] 본 학습 실행
-    - [ ] 하이퍼파라미터 탐색 / MLflow 기록 (본 학습 결과 보고 결정)
+    - 1차 실행: EXPORT=False 기본값 탓에 GGUF 미생성, eval 5건 (#019) → 노트북 기본값 수정
+    - 2차 실행(본 학습): train 208 / eval 23, 2 epoch, train_loss 0.164, GGUF 4.36GB 생성
+      결과: finetune/results/finetune_report_20261004.json
+      ※ Colab 평가는 제약 없는 생성이라 base 를 과소평가 → 공식 수치는 로컬 평가(4-3) 사용
+    - [ ] 하이퍼파라미터 탐색 / MLflow 기록 (개선 폭이 크지 않아 우선순위 낮음)
 
-[코드 준비 완료] 4-3. 파인튜닝 모델 통합
+[완료 2026-10-04] 4-3. 파인튜닝 모델 통합
     - finetune/ollama/Modelfile (ChatML 템플릿, num_ctx 8192)
     - settings.PARSE_WITH_LOCAL_LLM: true 면 공고 길이와 무관하게 로컬 파서 우선,
       실패 시 OpenAI 폴백 (기존엔 로컬 실패 시 빈 결과)
     - finetune/eval_local.py: Ollama 모델 비교 평가 (베이스 qwen2.5:7b vs goodjob-parser)
-    - [ ] Ollama 설치 → GGUF 등록 → 로컬 평가 → OpenAI 대비 비교
+    - Ollama 0.35.1 설치, goodjob-parser 등록, 로컬 비교 평가 완료 (#020)
+      21건 기준 우대 기술 +0.138 / 키워드 +0.105 / 경력 +0.095, 필수 기술 -0.036
+    - 판단: 앱 기본값은 OpenAI 유지, 파인튜닝 모델은 개인정보 보호 모드의 공고 파서로 사용
+
+[완료 2026-10-04] 4-4. 개인정보 보호 모드 (전체 로컬 처리)
+    - 2장 "개인정보 보호 모드" 참고 (토글, 로컬 모델 구성, OpenAI 차단 장치, 검증 결과)
 
 ────────────────────────────────────────────────────────────────
 Phase 5. 배포 및 마무리
@@ -1150,8 +1338,13 @@ Phase 5. 배포 및 마무리
 
 [ ] 5-4. README 및 포트폴리오 문서화
     - 아키텍처 다이어그램 작성
-    - 기술 선택 이유 기록
+    - 기술 선택 이유 기록 (이 문서 3·4장 + 트러블슈팅 기록 활용)
+    - 측정 결과 표 (RAGAS, 파인튜닝 비교)
     - 데모 GIF 또는 영상 첨부
+
+[ ] 5-5. 최신 변경 GitHub 반영
+    - PR #1 (10-03 작업) 은 main 반영 완료
+    - 10-04 작업(#018~#020 수정, 개인정보 보호 모드, 평가 결과 문서)은 로컬에만 있음
 
 
 ================================================================
@@ -1173,7 +1366,7 @@ goodjob/
 │
 ├── agents/               ← LangGraph 파이프라인
 │   ├── state.py          ← 공유 상태 TypedDict
-│   ├── graph.py          ← 5노드 StateGraph
+│   ├── graph.py          ← 6노드 StateGraph
 │   ├── job_parser.py     ← 완성 (Structured Output)
 │   ├── rag_retriever.py  ← 완성
 │   ├── fit_analyzer.py   ← 완성 (프롬프트 포함)
@@ -1186,9 +1379,9 @@ goodjob/
 │
 ├── rag/
 │   ├── vectorstore.py    ← Chroma DB (완성)
-│   ├── embeddings.py     ← OpenAI / BGE-M3 (완성)
+│   ├── embeddings.py     ← OpenAI / 보호 모드 Ollama bge-m3 (완성)
 │   ├── profile_loader.py ← 완성
-│   ├── reranker.py       ← BGE Reranker (완성)
+│   ├── reranker.py       ← BGE Reranker (완성, 기본 비활성)
 │   ├── evaluator.py      ← RAGAS 평가 (완성)
 │   ├── eval_rag.py       ← 설정 비교 실험 (완성)
 │   └── eval_results/     ← 평가 결과 JSON
@@ -1196,7 +1389,8 @@ goodjob/
 ├── llm/
 │   ├── openai_client.py  ← OpenAI API (완성)
 │   ├── claude_client.py  ← openai_client 별칭
-│   ├── local_llm.py      ← Ollama (완성)
+│   ├── local_llm.py      ← Ollama LocalLLM / LocalChatClient (완성)
+│   ├── factory.py        ← 모드별 클라이언트 선택 (완성)
 │   └── router.py         ← 자동 라우팅 (완성)
 │
 ├── search/
@@ -1206,17 +1400,20 @@ goodjob/
 │   └── pipeline.py         ← 완성
 │
 ├── finetune/
-│   ├── train.py          ← Unsloth + LoRA (완성)
+│   ├── train.py          ← Unsloth QLoRA 학습·평가·GGUF (Colab 실행 완료)
 │   ├── inference.py      ← Colab 학습 직후 LoRA 스팟 체크용
-│   ├── data_collector.py ← 공고 수집 + gpt-4o 라벨링 (파일럿 44건 완료)
+│   ├── data_collector.py ← 공고 수집 + gpt-4o 라벨링 + 정리 (231건)
 │   ├── metrics.py        ← 파싱 평가 지표
 │   ├── colab_finetune.ipynb ← Colab 학습 노트북
 │   ├── eval_local.py     ← Ollama 모델 로컬 평가
-│   ├── ollama/Modelfile  ← GGUF → Ollama 등록
-│   └── mlflow_logger.py  ← MLflow 추적 (완성)
+│   ├── ollama/Modelfile  ← GGUF → Ollama 등록 (GGUF 파일은 git 제외)
+│   ├── results/          ← 학습 리포트 JSON, 로컬 비교 평가 MD
+│   ├── dataset/          ← 학습 데이터 (git 제외 — 채용 사이트 원문)
+│   └── mlflow_logger.py  ← MLflow 추적 (미연결)
 │
 ├── api/
 │   ├── main.py           ← FastAPI 앱 (완성)
+│   ├── session_store.py  ← Redis 세션 + 메모리 폴백
 │   └── routes/
 │       ├── profile.py    ← 완성
 │       ├── company.py    ← 완성
@@ -1224,7 +1421,7 @@ goodjob/
 │       └── recommend.py  ← 완성
 │
 ├── frontend/
-│   ├── app.py            ← Streamlit UI (완성)
+│   ├── app.py            ← Streamlit UI 5페이지 + 개인정보 보호 모드 토글 (완성)
 │   └── pdf_exporter.py   ← 이력서 PDF 출력 (완성)
 │
 └── n8n/

@@ -145,7 +145,8 @@ def _is_listing_url(url: str) -> bool:
     global _LISTING_URL_PATTERN
     if _LISTING_URL_PATTERN is None:
         _LISTING_URL_PATTERN = re.compile(
-            r"/search(?:[/?]|$)|/q-|/jobs/?(?:\?|$)|[?&](?:q|query|keyword|searchword|stext)=",
+            # /list/ — 사람인 직무 카테고리 목록(jobs/list/job-category) 등 (PROJECT_DOCS #020)
+            r"/search(?:[/?]|$)|/q-|/list/|/jobs/?(?:\?|$)|[?&](?:q|query|keyword|searchword|stext|cat_kewd)=",
             re.IGNORECASE,
         )
     return bool(_LISTING_URL_PATTERN.search(url))

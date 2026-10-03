@@ -1,0 +1,70 @@
+{
+  "results": {
+    "base": {
+      "json_valid": 0.957,
+      "is_job_posting_acc": 0.913,
+      "required_skills_f1": 0.601,
+      "preferred_skills_f1": 0.635,
+      "keywords_f1": 0.455,
+      "experience_years_acc": 0.391,
+      "job_title_match": 0.739,
+      "company_name_match": 0.87,
+      "no_chinese_leak": 0.826,
+      "sec_per_sample": 28.5
+    },
+    "finetuned": {
+      "json_valid": 1.0,
+      "is_job_posting_acc": 0.783,
+      "required_skills_f1": 0.544,
+      "preferred_skills_f1": 0.82,
+      "keywords_f1": 0.57,
+      "experience_years_acc": 0.87,
+      "job_title_match": 0.783,
+      "company_name_match": 0.957,
+      "no_chinese_leak": 1.0,
+      "sec_per_sample": 23.1
+    }
+  },
+  "train_size": 208,
+  "eval_size": 23,
+  "epochs": 2,
+  "base_model": "unsloth/Qwen2.5-7B-Instruct-bnb-4bit",
+  "lora": {
+    "r": 16,
+    "lora_alpha": 16,
+    "lora_dropout": 0.0,
+    "bias": "none",
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ],
+    "use_gradient_checkpointing": "unsloth",
+    "random_state": 3407
+  },
+  "training_args": {
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 8,
+    "warmup_ratio": 0.05,
+    "learning_rate": 0.0002,
+    "logging_steps": 5,
+    "optim": "adamw_8bit",
+    "weight_decay": 0.01,
+    "lr_scheduler_type": "linear",
+    "seed": 3407,
+    "report_to": "none"
+  },
+  "train_loss": 0.16419692939290634,
+  "sample_predictions": [
+    "{\"is_job_posting\": true, \"company_name\": \"케이웨더\", \"job_title\": \"프론트엔드 웹개발자\", \"required_skills\": [\"Java\", \"Linux\", \"React\", \"Next.js\", \"TypeScript\", \"JavaScript\", \"REST API\"], \"preferred_skills\": [\"React\", \"Next.js\", \"HTML\", \"CSS\", \"Typescript\", \"JavaScript\", \"Restful API\", \"렌더링 최적화\", \"표시 시각화 라이브러리\", \"AWS\"], \"experience_years\": 5, \"responsibilities\": [\"자사 IoT & 기상 웹 서비스 개발 및 운영\", \"자사 서비스 데이터 및 지도 시각화 업무\", \"자사 서비스 관련 Rest API 설계 및 개발\"], \"company_culture\": \"케이웨더는 자유로운 반차와 연차 사용을 지원하며, 휴게실과 탕비실을 운영합니다. 야근과 주말 근무 시 식대를 지원하며, 명절 선물과 자율 복장 근무를 제공합니다.\", \"keywords\": [\"프론트엔드\", \"웹개발\", \"IoT\", \"기상 서비스\", \"데이터 시각화\", \"REST API\", \"React\", \"Next.js\", \"TypeScript\", \"JavaScript\", \"AWS\", \"협업 도구\", \"디자인\", \"UI Framework\", \"성능 개선\"], \"location\": \"서울특별시 구로구 디지털로26길 5\", \"remote_policy\": \"\", \"job_type\": \"정규직\", \"salary_range\": \"\"}",
+    "{\"is_job_posting\": false, \"company_name\": \"데이터투테크놀로지\", \"job_title\": \"\", \"required_skills\": [], \"preferred_skills\": [], \"experience_years\": 0, \"responsibilities\": [], \"company_culture\": \"\", \"keywords\": [], \"location\": \"\", \"remote_policy\": \"\", \"job_type\": \"\", \"salary_range\": \"\"}",
+    "{\"is_job_posting\": true, \"company_name\": \"와디즈\", \"job_title\": \"데이터 엔지니어\", \"required_skills\": [\"MySQL\", \"Elasticsearch\", \"Hadoop\", \"Kafka\", \"Java\", \"Python\", \"SQL\", \"AWS\", \"GCP\"], \"preferred_skills\": [], \"experience_years\": 3, \"responsibilities\": [\"MySQL, Elasticsearch, Hadoop/Hive/Presto 등을 활용한 데이터 파이프라인 처리 및 분석\", \"Airflow, Kafka 등을 활용하여 정형, 비정형 데이터에 대한 실시간/배치 데이터 파이프라인 설계 및 구현\", \"데이터 엔지니어링 플랫폼 개발\"], \"company_culture\": \"와디즈 데이터플랫폼팀은 데이터분석가, AI 개발자, 데이터 엔지니어가 함께 모여서 서로의 필요를 채워주며 일하고 있어요. AI 개발자는 다양한 형태의 프로젝트 데이터 및 사용자 행동 데이터를 기반으로 여러가지 AI모델을 개발하여 서비스에 적용하는 일을 하고 있어요. 새로운 문제를 주도적이고 도전적으로 해결해 내는 것을 좋아하고, 급변의 물살을 즐기며 적응할 수 있는 분과 함께 하고 싶어요.\", \"keywords\": [\"데이터 엔지니어\", \"MySQL\", \"Elasticsearch\", \"Hadoop\", \"Kafka\", \"Java\", \"Python\", \"SQL\", \"AWS\", \"GCP\", \"데이터 파이프라인\", \"AI 모델\", \"클라우드 데이터 플랫폼\", \"커머스 데이터\", \"실시간 데이터 파이프라인\"], \"location\": \"경기 성남시 분당구 판교로 242, A동 5층 504호\", \"remote_policy\": \"\", \"job_type\": \"정규직\", \"salary_range\": \"\"}"
+  ],
+  "gguf_files": [
+    "goodjob-parser_gguf/Qwen2.5-7B-Instruct.Q4_K_M.gguf"
+  ]
+}

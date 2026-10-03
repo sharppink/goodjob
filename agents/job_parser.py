@@ -84,6 +84,9 @@ LOCAL_JSON_INSTRUCTION = """
 
 ### 출력 형식
 아래 키를 모두 가진 JSON 객체 하나만 출력하세요. 설명 문장은 쓰지 마세요.
+모든 값은 공고 원문의 언어(한국어 또는 영어)로만 쓰고, 중국어는 절대 쓰지 마세요.
+원문에 없는 내용은 지어내지 말고 빈 문자열이나 빈 리스트로 두세요.
+remote_policy 는 재택/출근/하이브리드 여부만 적습니다 (복장·근무시간 등은 넣지 않음).
 {
   "is_job_posting": true,
   "company_name": "실제 고용 회사명 ((주)·㈜ 제외, 점핏·사람인 같은 채용 사이트명 아님)",
@@ -122,6 +125,18 @@ def job_parser_node(state: GoodJobState) -> GoodJobState:
 
     trimmed = clean_posting_text(raw_text)
     from config.settings import settings
+    if settings.PRIVACY_MODE:
+        # 개인정보 보호 모드: 파인튜닝 sLLM → 실패 시 로컬 범용 모델 (OpenAI 사용 안 함)
+        try:
+            requirements = parse_privately(trimmed)
+        except Exception as exc:
+            logger.error("[job_parser] 로컬 파싱 실패: %s", exc)
+            errors.append(f"job_parser: 로컬 파싱 실패 – {exc}")
+            requirements = _empty_requirements()
+        state["job_requirements"] = requirements
+        state["errors"] = errors
+        return state
+
     if settings.PARSE_WITH_LOCAL_LLM:
         # 파인튜닝한 파서 모델을 쓰는 경우: 길이와 관계없이 로컬 우선
         llm_choice = "local" if _router._check_local_available() else "openai"
@@ -181,6 +196,46 @@ def clean_posting_text(raw_text: str) -> str:
     return text.strip()[:MAX_POSTING_CHARS]
 
 
+_UNKNOWN_VALUES = {"n/a", "na", "none", "null", "정보 없음", "정보없음", "상세 불명", "불명",
+                   "미정", "명시되지 않음", "명시 안 됨", "알 수 없음", "해당 없음", "-"}
+
+
+def normalize_remote_policy(value: str) -> str:
+    """근무 형태를 출근 / 재택 / 하이브리드 / "" 로 정규화 (근무시간·복장 제도는 "")."""
+    v = (value or "").replace(" ", "")
+    if not v:
+        return ""
+    has_remote = any(k in v for k in ("재택", "원격", "리모트", "remote", "Remote"))
+    has_office = any(k in v for k in ("출근", "오피스", "현장", "상주", "사무실"))
+    if "하이브리드" in v or "hybrid" in v.lower() or (has_remote and has_office):
+        return "하이브리드"
+    if has_remote:
+        # "재택근무 가능", "주 2일 재택" 등 부분 재택 표현이면 하이브리드
+        partial = any(k in v for k in ("가능", "일부", "주", "선택", "병행", "partial"))
+        return "하이브리드" if partial else "재택"
+    if has_office:
+        return "출근"
+    return ""
+
+
+def normalize_requirements(req: dict[str, Any]) -> dict[str, Any]:
+    """
+    LLM 출력(OpenAI·로컬 공통) 정규화.
+
+    gpt-4o 라벨도 '정보 없음'/'N/A'/'상세 불명' 등 빈 값 표기가 제각각이고 remote_policy 에
+    유연근무제·복장 규정이 섞여 있어, 학생 모델이 이를 그대로 배움 (PROJECT_DOCS #019).
+    """
+    out = dict(req)
+    for key, value in out.items():
+        if isinstance(value, str) and value.strip().lower() in _UNKNOWN_VALUES:
+            out[key] = ""
+        elif isinstance(value, list):
+            out[key] = [x for x in value
+                        if not (isinstance(x, str) and x.strip().lower() in _UNKNOWN_VALUES)]
+    out["remote_policy"] = normalize_remote_policy(out.get("remote_policy", ""))
+    return out
+
+
 def build_local_messages(raw_text: str) -> list[dict[str, str]]:
     """
     로컬 LLM 에 보내는 채팅 메시지 (system + user).
@@ -202,19 +257,59 @@ def parse_local_response(raw_resp: str) -> dict[str, Any]:
     if raw_resp.startswith("[LocalLLM error"):
         raise RuntimeError(raw_resp)
     clean = re.sub(r"```(?:json)?", "", raw_resp).strip().rstrip("`").strip()
-    return _normalize(json.loads(clean))
+    return normalize_requirements(_normalize(json.loads(clean)))
 
 
-def parse_with_local_llm(raw_text: str) -> dict[str, Any]:
-    """Ollama 로컬 모델(JSON 모드)로 공고를 파싱합니다."""
+def parse_with_local_llm(raw_text: str, model: str | None = None) -> dict[str, Any]:
+    """Ollama 로컬 모델(JSON 모드)로 공고를 파싱합니다. model 미지정 시 LOCAL_MODEL_NAME."""
     from llm.local_llm import LocalLLM
     messages = build_local_messages(raw_text)
-    raw_resp = LocalLLM().generate(
+    raw_resp = LocalLLM(model=model).generate(
         prompt=messages[1]["content"],
         system=messages[0]["content"],
         format="json",
     )
-    return parse_local_response(raw_resp)
+    requirements = parse_local_response(raw_resp)
+    if _has_chinese_leak(requirements):
+        # Qwen 계열의 중국어 혼입 — 예외를 내서 job_parser_node 가 OpenAI 로 재파싱 (PROJECT_DOCS #018)
+        raise ValueError("로컬 모델 출력에 중국어가 섞임")
+    return requirements
+
+
+# finetune/metrics.py 의 no_chinese_leak 지표와 같은 규칙
+# (metrics 는 Colab 번들에 단독으로 들어가야 해서 agents 를 import 하지 않음)
+_CHINESE_LEAK = re.compile(r"[一-鿿]{4,}|[，。；：！？]")
+
+
+def _has_chinese_leak(data: Any) -> bool:
+    if isinstance(data, str):
+        return bool(_CHINESE_LEAK.search(data))
+    if isinstance(data, dict):
+        return any(_has_chinese_leak(v) for v in data.values())
+    if isinstance(data, list):
+        return any(_has_chinese_leak(v) for v in data)
+    return False
+
+
+def parse_privately(raw_text: str) -> dict[str, Any]:
+    """
+    개인정보 보호 모드 파싱 — 외부 API 를 쓰지 않음.
+
+    1) 파인튜닝 sLLM(PRIVACY_PARSER_MODEL) — 학습 때와 같은 프롬프트·JSON 모드
+    2) 실패/중국어 혼입 시 로컬 범용 모델(PRIVACY_CHAT_MODEL) + 구조화 출력
+    """
+    from config.settings import settings
+    try:
+        return parse_with_local_llm(raw_text, model=settings.PRIVACY_PARSER_MODEL)
+    except Exception as exc:
+        logger.warning("[job_parser] 파인튜닝 파서 실패 → 로컬 범용 모델: %s", exc)
+    from llm.local_llm import LocalChatClient
+    parsed = LocalChatClient().generate_structured(
+        prompt=USER_PROMPT_TEMPLATE.format(raw_text=clean_posting_text(raw_text)),
+        schema=JobRequirements,
+        system=SYSTEM_PROMPT,
+    )
+    return normalize_requirements(parsed.model_dump())
 
 
 def parse_posting_structured(raw_text: str, raise_on_error: bool = False) -> dict[str, Any]:
@@ -222,6 +317,16 @@ def parse_posting_structured(raw_text: str, raise_on_error: bool = False) -> dic
     단일 채용공고 텍스트를 Structured Output(OpenAI)으로 파싱하여 dict 반환.
     job_recommender, 파인튜닝 데이터 라벨링(teacher) 등 외부 호출용.
     """
+    from llm.factory import is_privacy_mode
+    if is_privacy_mode():
+        try:
+            return parse_privately(raw_text)
+        except Exception as exc:
+            logger.error("[job_parser] 로컬 파싱 실패: %s", exc)
+            if raise_on_error:
+                raise
+            return _empty_requirements()
+
     prompt = USER_PROMPT_TEMPLATE.format(raw_text=clean_posting_text(raw_text))
     try:
         from llm.openai_client import OpenAIClient
@@ -231,7 +336,7 @@ def parse_posting_structured(raw_text: str, raise_on_error: bool = False) -> dic
             schema=JobRequirements,
             system=SYSTEM_PROMPT,
         )
-        return parsed.model_dump()
+        return normalize_requirements(parsed.model_dump())
     except Exception as exc:
         logger.error("[job_parser] parse_posting_structured 실패: %s", exc)
         if raise_on_error:

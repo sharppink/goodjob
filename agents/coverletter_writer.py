@@ -95,13 +95,13 @@ def write_answer(
         answer, question_intent, key_message, used_experiences,
         chars_with_spaces, chars_without_spaces, char_limit, within_limit, retries
     """
-    from llm.openai_client import OpenAIClient
+    from llm.factory import get_chat_client
 
     req = job_requirements or {}
     experiences = _retrieve_experiences(question, req)
     min_chars = int(char_limit * TARGET_MIN_RATIO)
 
-    client = OpenAIClient()
+    client = get_chat_client()
     result: CoverLetterAnswer = client.generate_structured(
         prompt=USER_PROMPT_TEMPLATE.format(
             company_name=company_name or "지원 회사",

@@ -181,7 +181,7 @@ def export_gguf(model, tokenizer, out_dir: str = "goodjob-parser", quantization:
 # 전체 실행                                                            #
 # ------------------------------------------------------------------ #
 
-def run_all(train_path: str, eval_path: str, epochs: int = 2, eval_limit: int | None = 30,
+def run_all(train_path: str, eval_path: str, epochs: int = 2, eval_limit: int | None = None,
             skip_base_eval: bool = False, export: bool = True) -> dict[str, Any]:
     from finetune.metrics import format_table
 
@@ -215,10 +215,19 @@ def run_all(train_path: str, eval_path: str, epochs: int = 2, eval_limit: int | 
     model.save_pretrained("goodjob-parser-lora")
     tokenizer.save_pretrained("goodjob-parser-lora")
 
+    report["gguf_files"] = []
     if export:
-        print("\n[4/4] GGUF 내보내기 (q4_k_m, 수 분 소요)")
-        report["gguf_files"] = export_gguf(model, tokenizer)
-        print("GGUF:", report["gguf_files"])
+        print("\n[4/4] GGUF 내보내기 (q4_k_m, 10분 내외)")
+        try:
+            report["gguf_files"] = export_gguf(model, tokenizer)
+            print("GGUF:", report["gguf_files"])
+        except Exception as exc:  # noqa: BLE001
+            # 내보내기가 실패해도 LoRA·리포트는 이미 저장됨 → 다음 셀에서 Drive 로 복사 가능
+            report["gguf_error"] = repr(exc)
+            print("⚠️ GGUF 내보내기 실패:", exc)
+    else:
+        print("\n[4/4] EXPORT=False — GGUF 를 만들지 않았습니다 (로컬 Ollama 에서 쓰려면 True 필요)")
+    Path("finetune_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
 
@@ -227,7 +236,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--train", default="finetune/dataset/parser_train.jsonl")
     p.add_argument("--eval", default="finetune/dataset/parser_eval.jsonl")
     p.add_argument("--epochs", type=int, default=2)
-    p.add_argument("--eval-limit", type=int, default=30)
+    p.add_argument("--eval-limit", type=int, default=None, help="평가 건수 제한 (기본: eval 전체)")
     p.add_argument("--skip-base-eval", action="store_true")
     p.add_argument("--no-export", action="store_true")
     return p.parse_args()

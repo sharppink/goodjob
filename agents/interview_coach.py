@@ -105,7 +105,7 @@ def generate_interview_questions(
     state: GoodJobState, count: int = DEFAULT_QUESTION_COUNT
 ) -> list[dict]:
     """state 정보로 면접 질문을 생성해 dict 리스트로 반환합니다 (Streamlit 직접 호출용)."""
-    from llm.openai_client import OpenAIClient
+    from llm.factory import get_chat_client
 
     req: dict = state.get("job_requirements") or {}
     prompt = USER_PROMPT_TEMPLATE.format(
@@ -116,7 +116,7 @@ def generate_interview_questions(
         resume=(state.get("resume_final") or state.get("resume_draft") or "")[:6000],
         count=count,
     )
-    result: InterviewQuestionSet = OpenAIClient().generate_structured(
+    result: InterviewQuestionSet = get_chat_client().generate_structured(
         prompt=prompt, schema=InterviewQuestionSet, system=SYSTEM_PROMPT, temperature=0.4,
     )
     questions = [q.model_dump() for q in result.questions]

@@ -127,6 +127,20 @@ class Settings(BaseSettings):
         default="qwen2.5:7b",
         description="Ollama model tag to use for low-complexity tasks.",
     )
+    # ------------------------------------------------------------------ #
+    # 개인정보 보호 모드 (전체 로컬 처리)                                  #
+    # ------------------------------------------------------------------ #
+    PRIVACY_MODE: bool = Field(
+        default=False,
+        description=(
+            "True 면 모든 LLM·임베딩을 로컬 Ollama 로 처리하고 OpenAI 호출을 차단. "
+            "Streamlit 사이드바 토글로 실행 중 변경 가능."
+        ),
+    )
+    PRIVACY_PARSER_MODEL: str = Field(default="goodjob-parser", description="공고 파싱용 파인튜닝 sLLM")
+    PRIVACY_CHAT_MODEL: str = Field(default="qwen2.5:7b", description="적합도·이력서·교정·면접 등 범용 로컬 모델")
+    PRIVACY_EMBED_MODEL: str = Field(default="bge-m3", description="로컬 임베딩 모델 (Ollama)")
+
     PARSE_WITH_LOCAL_LLM: bool = Field(
         default=False,
         description=(

@@ -132,8 +132,8 @@ def fit_analyzer_node(state: GoodJobState) -> GoodJobState:
     )
 
     try:
-        from llm.openai_client import OpenAIClient
-        client = OpenAIClient()
+        from llm.factory import get_chat_client
+        client = get_chat_client()
         result: FitAnalysis = client.generate_structured(
             prompt=prompt,
             schema=FitAnalysis,

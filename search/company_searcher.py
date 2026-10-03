@@ -179,8 +179,8 @@ class CompanySearcher:
         if not text.strip():
             return ""
         try:
-            from llm.openai_client import OpenAIClient, FAST_MODEL
-            client = OpenAIClient(model=FAST_MODEL)
+            from llm.factory import get_chat_client
+            client = get_chat_client(fast=True)
             prompt = (
                 f"다음은 채용 관련 검색 결과입니다.\n\n{text[:3000]}\n\n"
                 f"지시사항: {prompt_hint}"

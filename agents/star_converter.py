@@ -83,9 +83,9 @@ def convert_to_star(raw_text: str) -> list[dict[str, Any]]:
     if not raw_text.strip():
         return []
 
-    from llm.openai_client import OpenAIClient, FAST_MODEL
+    from llm.factory import get_chat_client
 
-    client = OpenAIClient(model=FAST_MODEL)
+    client = get_chat_client(fast=True)
     result: STARResult = client.generate_structured(
         prompt=USER_PROMPT_TEMPLATE.format(raw_text=raw_text[:4000]),
         schema=STARResult,

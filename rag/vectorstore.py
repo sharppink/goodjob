@@ -23,6 +23,7 @@ from rag.embeddings import EmbeddingModel
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "goodjob_profile"
+PRIVATE_COLLECTION_NAME = "goodjob_profile_local"
 
 # Process-wide singleton — prevents multiple PersistentClient instances from
 # opening the same SQLite file concurrently (causes segfault on Windows).
@@ -81,13 +82,16 @@ class VectorStore:
 
         logger.info("[VectorStore] Initialising Chroma at '%s'.", self._persist_dir)
         self._client = _get_client(self._persist_dir)
+        # 개인정보 보호 모드는 임베딩 차원(bge-m3 1024)이 달라 별도 컬렉션 사용
+        from config.settings import settings as _s
+        self._collection_name = PRIVATE_COLLECTION_NAME if _s.PRIVACY_MODE else COLLECTION_NAME
         self._collection = self._client.get_or_create_collection(
-            name=COLLECTION_NAME,
+            name=self._collection_name,
             metadata={"hnsw:space": "cosine"},
         )
         logger.info(
             "[VectorStore] Collection '%s' ready (%d documents).",
-            COLLECTION_NAME,
+            self._collection_name,
             self._collection.count(),
         )
 
