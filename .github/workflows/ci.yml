@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: |
+            requirements-ci.txt
+            requirements.lock.txt
+
+      # 테스트에 필요한 패키지만 설치 (torch 등 학습용 패키지 제외), 버전은 lock 파일로 고정
+      - name: Install dependencies
+        run: pip install -r requirements-ci.txt -c requirements.lock.txt
+
+      # 외부 API 키 불필요: tests/conftest.py 가 가짜 LLM·임베딩을 쓰고 외부 네트워크를 차단
+      - name: Run tests
+        run: pytest

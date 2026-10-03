@@ -1,0 +1,14 @@
+# CI(pytest) 전용 최소 패키지 — torch·transformers 등 학습용 대용량 패키지 제외
+# 버전은 requirements.lock.txt 를 제약 조건으로 함께 사용해 고정:
+#   pip install -r requirements-ci.txt -c requirements.lock.txt
+pytest>=8.0
+fastapi
+httpx
+python-multipart
+pydantic-settings
+langgraph
+chromadb
+pymupdf
+openai
+ollama
+redis
