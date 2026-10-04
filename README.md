@@ -189,11 +189,22 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-- 121개, 약 12초. LLM·임베딩은 가짜 객체, 벡터 DB는 테스트마다 임시 폴더를 써서 **API 키 없이, 비용 없이** 돌아갑니다.
+- 122개, 약 12초. LLM·임베딩은 가짜 객체, 벡터 DB는 테스트마다 임시 폴더를 써서 **API 키 없이, 비용 없이** 돌아갑니다.
 - 외부 네트워크 접속을 막고, 실제 `chroma_db`를 가리키면 테스트를 중단하는 안전장치가 있습니다.
 - 루트의 `test_*.py`는 실제 API를 호출하는 수동 확인 스크립트이며 pytest 대상이 아닙니다.
+- 이력서 사실성은 `python -m scripts.eval_resume_facts`로 따로 측정합니다 (실제 OpenAI 호출).
 
 GitHub Actions가 PR과 `main` 푸시마다 pytest와 Docker 빌드·기동·동작 확인(컨테이너 간 벡터 공유, 한국어 PDF, Chromium)을 실행합니다.
+
+### 5. 클라우드 배포 (Streamlit Community Cloud)
+
+UI를 [Streamlit Community Cloud](https://share.streamlit.io)에 비공개 앱으로 배포해 두었습니다 (소유자·초대한 사람만 접속).
+
+- 설정: Repository `sharppink/goodjob`, Branch `main`, Main file `frontend/app.py`, Python 3.11
+- 패키지: 진입 파일 옆의 [`frontend/requirements.txt`](frontend/requirements.txt)가 루트보다 우선 사용됩니다 (torch 등 학습용 패키지 제외). 루트의 [`packages.txt`](packages.txt)로 한국어 폰트 설치
+- API 키: 앱 Settings → Secrets 에 `OPENAI_API_KEY`, `TAVILY_API_KEY` (TOML)
+- 클라우드에는 Ollama가 없어 개인정보 보호 모드는 자동으로 꺼지고, 공고 상세 수집(Playwright)은 검색 요약으로 대체됩니다.
+- 앱이 재시작되면 등록한 프로필이 초기화됩니다. `agents/` 등 화면 밖 코드를 바꾼 뒤에는 대시보드에서 **Reboot**해야 반영됩니다.
 
 ---
 
