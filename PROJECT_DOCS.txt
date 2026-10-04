@@ -1,17 +1,17 @@
 ================================================================
   GOODJOB - 프로젝트 문서
   작성일: 2026-10-02
-  최종 갱신: 2026-10-04
+  최종 갱신: 2026-10-05
   작성자: GoodJob 개발팀
 ================================================================
 
 ----------------------------------------------------------------
 목차
 ----------------------------------------------------------------
-요약. 진행 요약 및 핵심 수치 (2026-10-02 ~ 10-04)
+요약. 진행 요약 및 핵심 수치 (2026-10-02 ~ 10-05)
 0. 실제 개발 중 발생한 문제 기록 (최신순)
 1. 프로젝트 개요
-2. 현재 구현된 기능 (2026-10-04 기준)
+2. 현재 구현된 기능 (2026-10-05 기준)
 3. 사용 기술 상세 (이유 / 장점 / 단점 / 예상 문제)
 4. 추가 적용된 기술 A/B/C
 5. 앞으로 진행해야 할 과정
@@ -20,7 +20,7 @@
 
 
 ================================================================
-요약. 진행 요약 및 핵심 수치 (2026-10-02 ~ 10-04)
+요약. 진행 요약 및 핵심 수치 (2026-10-02 ~ 10-05)
 ================================================================
 
 진행 타임라인
@@ -39,6 +39,11 @@
        브라우저로 전 기능 실사용 점검 → 품질 문제 4건 발견 (#025~#028)
        Streamlit Community Cloud 비공개 배포 (PR #6)
        이력서 사실성 수정 (#025, PR #7) — 배포 앱 반영 시 재부팅 필요 확인 (#029)
+10-05  STAR 버튼 첫 클릭 무시 수정 (#026, PR #9), 진행 문서 정리 (PR #8)
+       Google 로그인(st.login) + 계정별 프로필 분리, 프로필을 Supabase(pgvector)에 영구 저장 (PR #10)
+       → 로컬·클라우드 모두 실제 Google 로그인·Supabase 저장·재부팅 후 유지 확인, 기본 권한 회수 (#030)
+       '내 프로필 보기' (PR #12), 테스트가 로컬 secrets.toml 을 읽던 문제 수정 (#031)
+       문서 PR #11·#13
 
 핵심 수치 (포트폴리오 근거)
 ---------------------------
@@ -56,22 +61,27 @@
 - 개인정보 보호 모드: OpenAI SDK 를 차단한 상태에서 전체 파이프라인 정상 동작 (67초)
 - 이력서 사실성 (#025, scripts/eval_resume_facts.py — 같은 입력 5회 생성)
     프로필에 없는 경력 업무: 수정 전 0/5회 깨끗 (14건) → 수정 후 5/5회 깨끗 (0건)
-- 자동 테스트: pytest 122개 (약 12초, 외부 API·실제 DB 미사용), CI 에서 Docker 4개 컨테이너 기동·동작 확인
+- 자동 테스트: pytest 139개 (로컬 136개 약 20초 + CI 전용 pgvector 통합 3개, 외부 API 미사용),
+    CI 에서 Docker 4개 컨테이너 기동·동작 확인
 
 현재 상태 / 남은 일
 -------------------
 - 배포: https://goodjo-59eeumwkcbbje95ev9oewj.streamlit.app (Streamlit Cloud, 비공개 — 소유자만 접속)
     Google 로그인(st.login) + 계정별 프로필, 프로필은 Supabase(pgvector, us-east-1)에 영구 저장 (PR #10)
     → 재부팅해도 프로필 유지 (2026-10-05 확인). 화면 외 코드 수정 병합 후 Reboot 는 여전히 필요 (#029)
-- GitHub: main 에 PR #1~#10 병합. CI(pytest + pgvector 통합 테스트 + Docker) 가 PR·main 푸시마다 실행
+    로그인 허용 계정: Google 테스트 사용자 + Secrets ALLOWED_EMAILS (+ Streamlit 비공개라 Sharing 초대도 필요)
+    현재 계정에는 확인용 샘플 프로필("테스트 계정A")만 있음 → 실제 이력서로 다시 등록 필요
+- GitHub: main 에 PR #1~#13 병합. CI(pytest + pgvector 통합 테스트 + Docker) 가 PR·main 푸시마다 실행
+    main 에는 Streamlit "Edit with Codespaces" 로 생긴 .devcontainer/devcontainer.json 커밋도 있음
 - Phase 5 (Docker·테스트·CI·README·GitHub 반영·배포) 완료
 - Tavily: 사용량 한도(#017)가 풀려 회사 검색·공고 추천 다시 동작 (2026-10-04 확인)
 - 미해결 품질 문제: #027 공고 추천에 목록 페이지 포함, #028 자동 검색이 공고가 아닌 글을 수집,
     공고의 "A 또는 B" 를 둘 다 필수로 해석 (#026 은 PR #9 로 해결)
 - 남은 제약: FastAPI 서버는 로그인 없이 공용 프로필 하나. 개인정보 보호 모드 설정이 프로세스 전역이라
     로컬에서 여러 계정이 동시에 쓰면 한 계정의 토글이 다른 계정에도 적용됨 (클라우드는 보호 모드 비활성)
-- 선택 작업: 데모 GIF, n8n 실제 실행, API 서버 배포, 학습 데이터 정리 후 재학습,
-    .claude/settings.local.json 저장소에서 제거
+- 작은 문제: 프로필 저장 직후 사이드바 "진행 상태" 가 새로고침 전까지 ✅ 로 바뀌지 않음
+- 선택 작업: 데모 GIF, n8n 실제 실행, API 서버 배포(로그인 포함), 학습 데이터 정리 후 재학습,
+    .claude/settings.local.json 저장소에서 제거, Streamlit 비공개 해제 여부 결정
 
 
 ================================================================
@@ -747,7 +757,7 @@ Step 6. 사용자가 이력서를 다운로드하거나 수정 요청 가능
 
 
 ================================================================
-2. 현재 구현된 기능 (2026-10-04 기준)
+2. 현재 구현된 기능 (2026-10-05 기준)
 ================================================================
 
 [완료] 핵심 로직 구현
@@ -780,6 +790,13 @@ LLM 기본값은 OpenAI (gpt-4o / gpt-4o-mini). 개인정보 보호 모드에서
 - vectorstore.py   : Chroma DB 연결, CRUD 메서드 완료
                      컬렉션 분리: goodjob_profile(일반) / goodjob_profile_local(보호 모드)
                      경로별 클라이언트 캐시, UUID 문서 ID (#009)
+                     계정별 분리: set_current_user(이메일) → 이메일 SHA-256 해시로 구분 (ContextVar,
+                     Streamlit 세션 스레드마다 독립), require_login 시 계정 없이 접근하면 오류
+                     SUPABASE_DB_URL 이 있으면 Supabase, 없으면 Chroma (보호 모드는 항상 로컬 Chroma)
+                     get_all_entries(): 청크 + 출처 메타데이터 ('내 프로필 보기' 용)
+- pg_store.py      : Supabase Postgres(pgvector) 컬렉션 — 테이블 goodjob_profile_chunks 하나에
+                     (collection, user_key) 로 구분, 차원 미고정 vector, 코사인 거리 검색,
+                     RLS 활성 + anon/authenticated 권한 회수 (#030), 프로세스 공유 접속 + 끊기면 1회 재접속
 - embeddings.py    : OpenAI text-embedding-3-small 기본 / 보호 모드는 Ollama bge-m3
 - profile_loader.py: PDF 파싱 + 딕셔너리 입력 → 섹션 청킹 → 저장 완료 (헤더 줄 소실 버그 수정 #007)
                      STAR 경험 추가 저장 (load_star_experiences)
@@ -825,7 +842,10 @@ LLM 기본값은 OpenAI (gpt-4o / gpt-4o-mini). 개인정보 보호 모드에서
   · 페이지 3: 분석 & 이력서 (노드별 실시간 진행 표시 + 결과 렌더링 + 면접 예상 질문)
   · 페이지 4: 자소서 문항 (글자수 지표, 직접 수정, txt 저장)
   · 페이지 5: 공고 추천 (job_recommender 결과 카드 UI)
-  · 사이드바: 🔒 개인정보 보호 모드 토글 + 로컬 모델 설치 상태 표시
+  · 사이드바: 🔒 개인정보 보호 모드 토글 + 로컬 모델 설치 상태 표시, 로그인 계정·로그아웃
+  · 로그인: Secrets 에 [auth] 가 있으면 Google 로그인 화면 → ALLOWED_EMAILS 확인 → 계정별 저장소
+    ([auth] 가 없으면 로그인 없이 공용 프로필 하나 — 로컬·Docker 기존 동작)
+  · 페이지 1: 📋 내 프로필 보기 (저장된 조각을 출처·섹션과 함께 표시)
   · 기술 매칭 시각화: fit_analyzer 판정(matched/missing) 기준으로 보유/미보유 표시
   · 이력서 초안 vs 최종본 탭 비교 + Markdown 다운로드
   · 커스텀 CSS로 다크 사이드바 + 카드 레이아웃 적용
@@ -860,7 +880,8 @@ LLM 기본값은 OpenAI (gpt-4o / gpt-4o-mini). 개인정보 보호 모드에서
 [완료] config/ - 설정 관리
 ---------------------------
 - settings.py : 모든 환경변수 Pydantic 검증 완료
-                (PRIVACY_MODE / PRIVACY_*_MODEL / PARSE_WITH_LOCAL_LLM / USE_OPENAI_EMBEDDINGS 등)
+                (PRIVACY_MODE / PRIVACY_*_MODEL / PARSE_WITH_LOCAL_LLM / USE_OPENAI_EMBEDDINGS /
+                 SUPABASE_DB_URL / ALLOWED_EMAILS 등)
 - tracing.py  : LangSmith 자동 초기화 완료
 
 [완료] 인프라
@@ -868,7 +889,10 @@ LLM 기본값은 OpenAI (gpt-4o / gpt-4o-mini). 개인정보 보호 모드에서
 - .env.example     : 모든 환경변수 템플릿 완료
 - requirements.txt : 전체 패키지 목록 (openai==1.84.0 고정)
 - requirements.lock.txt: 검증된 전체 버전 고정본 (pip freeze, 2026-10-03)
-- docker-compose.yml: api + frontend + redis + mlflow 구성 (Dockerfile 미작성)
+- docker-compose.yml: api + frontend + chroma + redis (+ mlflow 선택), Dockerfile 작성 완료 (5-1)
+- Supabase 프로젝트 goodjob (us-east-1, 무료, Data API 비활성) — 계정별 프로필 영구 저장
+- Google Cloud 프로젝트 goodjob — OAuth 클라이언트(웹), 동의 화면 "테스트 중"(테스트 사용자만 로그인)
+- .streamlit/secrets.toml (로컬 전용, git 제외): 로컬 Google 로그인 테스트용
 - 로컬 모델 (Ollama 0.35.1): goodjob-parser, qwen2.5:7b, bge-m3 설치 완료
 - .gitignore       : 민감 파일/대용량 파일 제외 설정 완료
 
@@ -1528,7 +1552,7 @@ Phase 5. 배포 및 마무리
     - 검증: 이 PC 에 Docker 미설치 → GitHub Actions 에서 빌드·기동·동작 확인 (5-3)
     - 작성 중 발견해 수정한 버그: #023 (PDF 폰트), #024 (Chroma 다중 프로세스)
 
-[완료 2026-10-04] 5-2. 테스트 작성 (pytest, 122개, 약 12초)
+[완료 2026-10-04] 5-2. 테스트 작성 (pytest, 122개 → 2026-10-05 139개)
     - 실행: pip install -r requirements-dev.txt → pytest   (pytest.ini 가 tests/ 만 수집)
     - 외부 API·실제 DB 없이 동작: LLM 은 FakeChatClient, 임베딩은 단어 해시 가짜 모델,
       Chroma 는 테스트마다 임시 폴더
@@ -1541,6 +1565,9 @@ Phase 5. 배포 및 마무리
     - 작성 중 발견해 수정한 버그: #021 (빈 metadata), #022 (손상 PDF 업로드)
     - 루트의 test_*.py 는 실제 API 를 호출하는 수동 스크립트 (test_rag.py 는 실제 DB 를 지움 —
       pytest 대상 아님)
+    - 2026-10-05 추가: test_multi_user.py (계정 분리·세션 간 섞임·보호 모드 Supabase 미사용),
+      test_app_login.py (AppTest 로 로그인 화면·허용 목록·내 프로필 보기),
+      test_pg_store.py (CI 의 pgvector 컨테이너로 저장·검색·삭제·RLS·이메일 미저장 — 로컬은 건너뜀)
 
 [완료 2026-10-04] 5-3. GitHub Actions CI/CD
     - [완료 2026-10-04] .github/workflows/ci.yml: PR·main 푸시 시 pytest 자동 실행
@@ -1550,6 +1577,7 @@ Phase 5. 배포 및 마무리
     - [완료 2026-10-04] docker 잡: PR·main 푸시마다 이미지 빌드 + 전체 스택 기동 후 확인
         API·Streamlit 헬스, Chroma·Redis 연결, 컨테이너 간 벡터 공유, 한국어 PDF, Chromium 실행
         (scripts/docker_smoke.py, 약 2분). 이미지 레지스트리 푸시는 배포 대상이 정해지면 추가
+    - [완료 2026-10-05] pytest 잡에 pgvector/pgvector:pg16 서비스 추가 (TEST_DATABASE_URL)
 
 [완료 2026-10-04] 5-4. README 및 포트폴리오 문서화 (README.md)
     - 아키텍처 다이어그램 2종 (에이전트 파이프라인, docker compose 실행 구성 — mermaid)
@@ -1574,8 +1602,25 @@ Phase 5. 배포 및 마무리
     - 로컬 검증: .env 없는 저장소 복사본 + 새 가상환경(frontend/requirements.txt 만) + secrets.toml(가짜 키)
       → 앱 기동, 보호 모드 토글 비활성 표시, Secrets 키가 설정에 반영됨(OpenAI 401 메시지로 확인)
     - 한계: 클라우드 파일 시스템은 재시작 시 초기화 → 등록한 프로필이 사라짐 (다시 등록 필요)
+      → 2026-10-05 Supabase 영구 저장으로 해결 (5-7)
     - 다른 사람 초대: share.streamlit.io → 앱 ⋮ → Settings → Sharing → Invite viewers by email
     - Secrets(API 키) 변경: 같은 Settings → Secrets
+
+[완료 2026-10-05] 5-7. Google 로그인 + 계정별 프로필 (Supabase pgvector) — PR #10
+    - 목적: 앱에 프로필이 하나뿐이라 모든 사용자가 같은 프로필을 보고 덮어쓰던 구조를 계정별로 분리
+    - 로그인: Streamlit 내장 st.login (OIDC, Authlib). 비밀번호를 앱이 저장하지 않음.
+      Secrets 의 [auth] (redirect_uri, cookie_secret, client_id, client_secret, server_metadata_url)
+    - 저장소 선택 이유: Chroma Cloud 도 검토했으나 무료로 계속 쓸 수 있는 Supabase(500MB) 선택.
+      Streamlit Cloud 는 IPv6 직접 접속이 안 될 수 있어 Session pooler(IPv4, 5432) 주소 사용
+    - 보안: 이메일 원문 대신 해시 저장, RLS + 기본 권한 회수(#030) + Data API 비활성,
+      보호 모드는 Supabase 미사용, .streamlit/secrets.toml 을 .gitignore 에 추가
+    - 검증: 실제 Supabase 로 저장·검색(0.2초)·계정 분리·RLS 확인 → 로컬 앱에서 실제 Google 로그인 후
+      프로필 등록(3청크)·Supabase 행 확인 → 클라우드 Secrets 입력·Reboot 후 같은 프로필 표시
+    - 설정 방법: README "로그인·계정별 프로필"
+
+[완료 2026-10-05] 5-8. 내 프로필 보기 — PR #12
+    - 프로필 등록 화면에 접힌 상자로 로그인 계정의 저장 조각을 출처(📄 PDF / ✏️ 직접 입력 / ⭐ STAR)·섹션과 함께 표시
+    - 로컬(Supabase 연결)과 클라우드에서 확인
 
 [완료 2026-10-04] 5-5. 최신 변경 GitHub 반영
     - PR #1 (10-03 작업) 은 main 반영 완료
@@ -1592,6 +1637,9 @@ goodjob/
 ├── requirements.txt      ← 전체 패키지 목록
 ├── requirements.lock.txt ← 검증된 전체 버전 고정본
 ├── .streamlit/config.toml← Streamlit 설정 (localhost 전용)
+├── .streamlit/secrets.toml ← 로컬 Google 로그인 테스트용 (git 제외)
+├── .devcontainer/        ← Codespaces 설정 (Streamlit 대시보드가 생성)
+├── packages.txt          ← Streamlit Cloud 용 apt 패키지 (한국어 폰트)
 ├── Dockerfile            ← API / Streamlit 공용 이미지 (빌드 대상 api, frontend)
 ├── .dockerignore         ← .env·DB·학습 데이터 제외
 ├── docker-compose.yml    ← api + frontend + chroma + redis (+ mlflow 선택)
@@ -1618,7 +1666,8 @@ goodjob/
 │   └── coverletter_writer.py ← 완성 (자소서 문항)
 │
 ├── rag/
-│   ├── vectorstore.py    ← Chroma DB (완성)
+│   ├── vectorstore.py    ← Chroma / Supabase 선택 + 계정별 분리 (완성)
+│   ├── pg_store.py       ← Supabase Postgres(pgvector) 컬렉션 (완성)
 │   ├── embeddings.py     ← OpenAI / 보호 모드 Ollama bge-m3 (완성)
 │   ├── profile_loader.py ← 완성
 │   ├── reranker.py       ← BGE Reranker (완성, 기본 비활성)
@@ -1661,18 +1710,19 @@ goodjob/
 │       └── recommend.py  ← 완성
 │
 ├── frontend/
-│   ├── app.py            ← Streamlit UI 5페이지 + 개인정보 보호 모드 토글 (완성)
+│   ├── app.py            ← Streamlit UI 5페이지 + 보호 모드 토글 + Google 로그인 (완성)
+│   ├── requirements.txt  ← Streamlit Cloud 용 패키지
 │   └── pdf_exporter.py   ← 이력서 PDF 출력 (완성)
 │
 ├── n8n/
 │   └── workflows/        ← 워크플로우 3종 (n8n 앱 내 실행 미검증)
 │
-├── tests/                ← pytest 자동 테스트 122개 (외부 API·실제 DB 미사용)
+├── tests/                ← pytest 자동 테스트 139개 (외부 API 미사용, pgvector 3개는 CI 전용)
 │   └── conftest.py       ← 가짜 LLM·임베딩, 네트워크 차단, 임시 Chroma
 ├── pytest.ini            ← tests/ 만 수집
 ├── requirements-dev.txt  ← requirements.txt + pytest
 ├── requirements-ci.txt   ← CI 전용 최소 패키지 (lock 과 함께 설치)
-├── .github/workflows/ci.yml ← PR·main 푸시 시 pytest
+├── .github/workflows/ci.yml ← PR·main 푸시 시 pytest(+pgvector) + Docker 확인
 └── test_*.py             ← 실제 API 호출 수동 확인 스크립트 (pytest 대상 아님)
 
 ================================================================
