@@ -61,12 +61,15 @@
 현재 상태 / 남은 일
 -------------------
 - 배포: https://goodjo-59eeumwkcbbje95ev9oewj.streamlit.app (Streamlit Cloud, 비공개 — 소유자만 접속)
-    화면 외 코드(agents/ 등) 수정 병합 후에는 대시보드에서 Reboot 필요 (#029, 프로필 초기화됨)
-- GitHub: main 에 PR #1~#7 병합. CI(pytest + Docker) 가 PR·main 푸시마다 실행
+    Google 로그인(st.login) + 계정별 프로필, 프로필은 Supabase(pgvector, us-east-1)에 영구 저장 (PR #10)
+    → 재부팅해도 프로필 유지 (2026-10-05 확인). 화면 외 코드 수정 병합 후 Reboot 는 여전히 필요 (#029)
+- GitHub: main 에 PR #1~#10 병합. CI(pytest + pgvector 통합 테스트 + Docker) 가 PR·main 푸시마다 실행
 - Phase 5 (Docker·테스트·CI·README·GitHub 반영·배포) 완료
 - Tavily: 사용량 한도(#017)가 풀려 회사 검색·공고 추천 다시 동작 (2026-10-04 확인)
-- 미해결 품질 문제: #026 STAR 버튼 첫 클릭 무시, #027 공고 추천에 목록 페이지 포함,
-    #028 자동 검색이 공고가 아닌 글을 수집, 공고의 "A 또는 B" 를 둘 다 필수로 해석
+- 미해결 품질 문제: #027 공고 추천에 목록 페이지 포함, #028 자동 검색이 공고가 아닌 글을 수집,
+    공고의 "A 또는 B" 를 둘 다 필수로 해석 (#026 은 PR #9 로 해결)
+- 남은 제약: FastAPI 서버는 로그인 없이 공용 프로필 하나. 개인정보 보호 모드 설정이 프로세스 전역이라
+    로컬에서 여러 계정이 동시에 쓰면 한 계정의 토글이 다른 계정에도 적용됨 (클라우드는 보호 모드 비활성)
 - 선택 작업: 데모 GIF, n8n 실제 실행, API 서버 배포, 학습 데이터 정리 후 재학습,
     .claude/settings.local.json 저장소에서 제거
 
@@ -77,6 +80,18 @@
 
 이 섹션은 실제 개발/테스트 중 발생한 문제를 기록합니다.
 동일 문제 재발 방지 및 포트폴리오 트러블슈팅 근거 자료로 활용합니다.
+
+────────────────────────────────────────────────────────────────
+[2026-10-05] #030 Supabase 새 테이블에 anon/authenticated 역할의 기본 권한이 남아 있음 — 해결
+────────────────────────────────────────────────────────────────
+발생 위치  : rag/pg_store.py 스키마 생성 (실제 Supabase 프로젝트 goodjob 으로 접속 확인 중 발견)
+증상       : 앱이 만든 goodjob_profile_chunks 테이블에 has_table_privilege('anon', ..., 'select') = true
+원인       : Supabase 는 public 스키마의 새 테이블에 Data API 역할(anon, authenticated) 권한을 기본으로 부여.
+             RLS 를 켜 두었고 프로젝트 생성 시 Data API 도 꺼서 실제로 읽히지는 않았음
+해결 방법  : 스키마 SQL 에서 두 역할이 있으면 revoke all (CI 의 일반 Postgres 에는 역할이 없어 조건부 실행)
+             → 실제 DB 에서 anon·authenticated select 권한 false, RLS true 확인
+현재 상태  : 해결 (2026-10-05, PR #10)
+재발 방지  : Supabase 에 테이블을 만들 때는 RLS + 기본 권한 회수 + (쓰지 않으면) Data API 비활성의 세 겹으로 막을 것
 
 ────────────────────────────────────────────────────────────────
 [2026-10-04] #029 main 에 합친 수정이 Streamlit Cloud 앱에 반영되지 않음 (재부팅 전까지 옛 코드 실행)
