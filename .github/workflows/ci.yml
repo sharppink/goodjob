@@ -18,6 +18,19 @@ jobs:
     name: pytest
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Supabase 와 같은 Postgres + pgvector — tests/test_pg_store.py 가 실제 DB 로 검증
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +49,8 @@ jobs:
       # 외부 API 키 불필요: tests/conftest.py 가 가짜 LLM·임베딩을 쓰고 외부 네트워크를 차단
       - name: Run tests
         run: pytest
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
 
   docker:
     name: docker build & smoke test

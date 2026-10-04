@@ -182,7 +182,31 @@ ollama create goodjob-parser -f finetune/ollama/Modelfile
 
 `goodjob-parser`가 없으면 공고 파싱도 `qwen2.5:7b`로 처리합니다. GGUF 파일(4.4GB)은 저장소에 포함하지 않으며, [`finetune/colab_finetune.ipynb`](finetune/colab_finetune.ipynb)로 직접 학습할 수 있습니다.
 
-### 4. 테스트
+### 4. 로그인·계정별 프로필 (선택, Streamlit Cloud 배포용)
+
+Secrets에 `[auth]`가 있으면 Google 로그인이 켜지고, 계정마다 프로필을 따로 저장합니다. 없으면 지금처럼 로그인 없이 공용 프로필 하나를 씁니다.
+
+1. **Google OAuth 클라이언트:** Google Cloud Console → API 및 서비스 → 사용자 인증 정보 → OAuth 클라이언트 ID(웹 애플리케이션). 승인된 리디렉션 URI에 `https://<앱 주소>/oauth2callback`(로컬은 `http://localhost:8501/oauth2callback`)을 넣습니다.
+2. **Supabase:** 프로젝트를 만들고 Connect → Connection pooler의 URI를 복사합니다. 테이블(`goodjob_profile_chunks`)과 pgvector 확장은 앱이 처음 접속할 때 만들고, RLS를 켜서 Supabase 공개 API로는 읽을 수 없게 합니다.
+3. **Secrets** (Streamlit Cloud 앱 설정, 로컬은 `.streamlit/secrets.toml` — git에 올라가지 않음):
+
+```toml
+SUPABASE_DB_URL = "postgresql://postgres.<project-ref>:<비밀번호>@aws-0-<region>.pooler.supabase.com:6543/postgres"
+ALLOWED_EMAILS = "me@gmail.com, friend@gmail.com"   # 비우면 Google 계정 누구나
+
+[auth]
+redirect_uri = "https://<앱 주소>/oauth2callback"
+cookie_secret = "<임의의 긴 문자열>"
+client_id = "<OAuth 클라이언트 ID>"
+client_secret = "<OAuth 클라이언트 보안 비밀>"
+server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+```
+
+- 계정은 이메일의 SHA-256 해시로 구분하며, DB에 이메일 원문은 저장하지 않습니다.
+- 개인정보 보호 모드에서는 Supabase 설정이 있어도 프로필을 로컬 Chroma에만 저장합니다.
+- FastAPI 서버는 아직 로그인을 쓰지 않고 공용 프로필 하나로 동작합니다.
+
+### 5. 테스트
 
 ```bash
 pip install -r requirements-dev.txt

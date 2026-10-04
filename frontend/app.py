@@ -153,6 +153,51 @@ for _k, _v in _DEFAULTS.items():
 
 from config.settings import settings as _settings
 
+# ------------------------------------------------------------------ #
+# 로그인 (Secrets 에 [auth] 가 있을 때만 — 없으면 로컬처럼 공용 프로필 하나)  #
+# ------------------------------------------------------------------ #
+
+def _auth_configured() -> bool:
+    try:
+        return "auth" in st.secrets
+    except Exception:
+        return False
+
+
+AUTH_ENABLED = _auth_configured()
+
+
+def _require_login() -> None:
+    """로그인 전이면 로그인 화면만 보여 주고 멈춤. 로그인 후에는 저장소를 이 계정으로 지정."""
+    from rag.vectorstore import require_login, set_current_user
+
+    require_login(True)
+    if not st.user.is_logged_in:
+        st.markdown("## 💼 GoodJob")
+        st.write("AI 기반 채용 매칭 & 이력서 생성 — 계정마다 프로필을 따로 저장합니다.")
+        st.button("Google 계정으로 로그인", type="primary", on_click=st.login)
+        st.stop()
+
+    email = (st.user.get("email") or "").strip().lower()
+    allowed = _settings.allowed_emails
+    if not email or (allowed and email not in allowed):
+        st.error(f"이 계정({email or '이메일 없음'})은 사용 권한이 없습니다. 관리자에게 문의해 주세요.")
+        st.button("로그아웃", on_click=st.logout)
+        st.stop()
+
+    # 같은 브라우저 세션에서 다른 계정으로 바뀌면 이전 계정의 화면 상태를 지움
+    if st.session_state.get("auth_email") != email:
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.session_state["auth_email"] = email
+        for _k, _v in _DEFAULTS.items():
+            st.session_state[_k] = _v
+    set_current_user(email)
+
+
+if AUTH_ENABLED:
+    _require_login()
+
 st.session_state.setdefault("privacy_mode", bool(_settings.PRIVACY_MODE))
 
 
@@ -212,6 +257,9 @@ def render_sidebar() -> str:
     with st.sidebar:
         st.markdown("## 💼 GoodJob")
         st.caption("AI 기반 채용 매칭 & 이력서 생성")
+        if AUTH_ENABLED:
+            st.caption(f"👤 {st.session_state['auth_email']}")
+            st.button("로그아웃", key="logout_btn", on_click=st.logout)
 
         ollama_ok = _ollama_reachable()
         privacy = st.toggle(

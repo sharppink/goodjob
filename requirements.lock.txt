@@ -17,6 +17,7 @@ anyio==4.15.1
 appdirs==1.4.4
 async-timeout==4.0.3
 attrs==26.1.0
+Authlib==1.8.0
 bcrypt==5.0.0
 bitsandbytes==0.50.2
 blinker==1.9.0
@@ -83,6 +84,7 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 jiter==0.10.0
 joblib==1.6.0
+joserfc==1.7.5
 jsonpatch==1.33
 jsonpointer==3.1.1
 jsonschema==4.26.0
@@ -143,6 +145,8 @@ prettytable==3.18.0
 propcache==0.5.4
 protobuf==6.33.6
 psutil==7.2.2
+psycopg==3.3.6
+psycopg-binary==3.3.6
 pyarrow==25.0.1
 pyasn1==0.6.4
 pyasn1_modules==0.4.2

@@ -5,13 +5,20 @@ Wraps ChromaDB with a simple interface used by the rest of the application.
 
 The collection name is fixed to ``"goodjob_profile"`` so that all profile
 chunks live in a single, easily-queried collection.
+
+계정별 분리: set_current_user(이메일) 이 호출된 컨텍스트에서는 계정마다 따로 저장됩니다.
+  - Chroma: 컬렉션 이름에 이메일 해시를 붙임
+  - Supabase(SUPABASE_DB_URL): 테이블 하나에 user_key(이메일 해시) 열로 구분 (rag/pg_store.py)
+로그인을 쓰지 않으면(로컬 실행·API·테스트) 기존처럼 공용 컬렉션 하나를 씁니다.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import uuid
+from contextvars import ContextVar
 from typing import Any, Optional
 
 import chromadb
@@ -24,6 +31,35 @@ logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "goodjob_profile"
 PRIVATE_COLLECTION_NAME = "goodjob_profile_local"
+
+# 현재 로그인한 계정 — Streamlit 은 세션마다 스크립트를 별도 스레드에서 실행하므로
+# 실행 시작 시 set_current_user 로 정하면 그 실행 안의 모든 VectorStore 가 같은 계정을 씀
+_current_user: ContextVar[Optional[str]] = ContextVar("goodjob_current_user", default=None)
+_login_required = False
+LOCAL_USER_KEY = "local"
+
+
+def set_current_user(email: Optional[str]) -> None:
+    """이후 이 컨텍스트에서 만드는 VectorStore 가 쓸 계정 (None 이면 공용)."""
+    _current_user.set(email.strip().lower() if email else None)
+
+
+def get_current_user() -> Optional[str]:
+    return _current_user.get()
+
+
+def require_login(required: bool = True) -> None:
+    """로그인을 쓰는 배포에서 계정 없이 저장소에 접근하면 공용 데이터를 읽지 않고 오류를 내도록 함."""
+    global _login_required
+    _login_required = required
+
+
+def user_key(email: Optional[str]) -> str:
+    """이메일을 그대로 저장하지 않도록 해시로 바꾼 계정 식별자."""
+    if not email:
+        return LOCAL_USER_KEY
+    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()[:32]
+
 
 # Process-wide singleton — prevents multiple PersistentClient instances from
 # opening the same SQLite file concurrently (causes segfault on Windows).
@@ -92,15 +128,30 @@ class VectorStore:
         if self._collection is not None:
             return
 
-        logger.info("[VectorStore] Initialising Chroma at '%s'.", self._persist_dir)
-        self._client = _get_client(self._persist_dir)
+        email = get_current_user()
+        if email is None and _login_required:
+            raise RuntimeError("로그인한 계정이 없어 프로필 저장소에 접근할 수 없습니다.")
+
         # 개인정보 보호 모드는 임베딩 차원(bge-m3 1024)이 달라 별도 컬렉션 사용
         from config.settings import settings as _s
         self._collection_name = PRIVATE_COLLECTION_NAME if _s.PRIVACY_MODE else COLLECTION_NAME
-        self._collection = self._client.get_or_create_collection(
-            name=self._collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
+
+        # 보호 모드는 프로필을 PC 밖으로 보내지 않으므로 Supabase 를 쓰지 않음
+        # persist_dir 을 직접 지정한 경우(평가·테스트용 임시 DB)도 로컬 Chroma 유지
+        if _s.SUPABASE_DB_URL and not _s.PRIVACY_MODE and self._persist_dir == _s.CHROMA_PERSIST_DIR:
+            from rag.pg_store import PgCollection
+            logger.info("[VectorStore] Using Supabase Postgres (pgvector).")
+            self._collection = PgCollection(_s.SUPABASE_DB_URL, self._collection_name, user_key(email))
+        else:
+            logger.info("[VectorStore] Initialising Chroma at '%s'.", self._persist_dir)
+            self._client = _get_client(self._persist_dir)
+            name = self._collection_name
+            if email is not None:
+                name = f"{name}__{user_key(email)[:16]}"
+            self._collection = self._client.get_or_create_collection(
+                name=name,
+                metadata={"hnsw:space": "cosine"},
+            )
         logger.info(
             "[VectorStore] Collection '%s' ready (%d documents).",
             self._collection_name,

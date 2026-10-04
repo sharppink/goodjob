@@ -8,8 +8,10 @@ python-multipart
 pydantic-settings
 langgraph
 chromadb
+psycopg[binary]
 pymupdf
 openai
 ollama
 redis
 reportlab
+streamlit  # tests/test_app_login.py (AppTest)

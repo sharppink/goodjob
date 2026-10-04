@@ -165,6 +165,26 @@ class Settings(BaseSettings):
         ),
     )
     CHROMA_PORT: int = Field(default=8000, description="Chroma 서버 포트")
+    SUPABASE_DB_URL: str = Field(
+        default="",
+        description=(
+            "Supabase Postgres 접속 문자열 (pgvector). 있으면 Chroma 대신 여기에 계정별 프로필을 저장 — "
+            "Streamlit Cloud 는 재시작 시 로컬 파일이 지워지므로 영구 보관용 (PROJECT_DOCS #029). "
+            "Streamlit Cloud 는 IPv6 직접 접속이 안 될 수 있어 Connection pooler 주소 사용 권장. "
+            "개인정보 보호 모드에서는 사용하지 않음 (항상 로컬 Chroma)."
+        ),
+    )
+
+    # ------------------------------------------------------------------ #
+    # 로그인 (Streamlit Google 로그인, Secrets 의 [auth] 가 있을 때만 사용) #
+    # ------------------------------------------------------------------ #
+    ALLOWED_EMAILS: str = Field(
+        default="",
+        description=(
+            "로그인을 허용할 이메일 목록 (쉼표 구분). 비어 있으면 Google 계정이 있는 누구나 로그인 가능 — "
+            "분석마다 OpenAI 비용이 드니 공개 배포 시에는 채워 두는 것을 권장."
+        ),
+    )
 
     # ------------------------------------------------------------------ #
     # LLM routing                                                          #
@@ -205,6 +225,10 @@ class Settings(BaseSettings):
     @property
     def has_tavily_key(self) -> bool:
         return bool(self.TAVILY_API_KEY)
+
+    @property
+    def allowed_emails(self) -> set[str]:
+        return {e.strip().lower() for e in self.ALLOWED_EMAILS.split(",") if e.strip()}
 
     @property
     def has_langsmith_key(self) -> bool:
