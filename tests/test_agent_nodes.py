@@ -102,6 +102,17 @@ def test_reviewer_passes_missing_skills_to_prompt(fake_llm):
     assert "Kubernetes" in fake_llm.calls[0][2]
 
 
+def test_reviewer_gets_original_experiences_for_fact_check(fake_llm):
+    """교정 단계가 원문 경험을 받아야 초안의 지어낸 업무를 걸러낼 수 있음 (#025)."""
+    from agents.reviewer import build_review_prompt
+
+    state = {"resume_draft": "# 초안", "retrieved_experiences": ["스타트업 A 백엔드 - 응답속도 40% 개선"]}
+    reviewer_node(dict(state))
+    node_prompt = fake_llm.calls[0][2]
+    assert "스타트업 A 백엔드 - 응답속도 40% 개선" in node_prompt
+    assert node_prompt == build_review_prompt(state)[0], "그래프 노드와 Streamlit 스트리밍이 같은 프롬프트를 써야 함"
+
+
 # ------------------------------------------------------------------ #
 # interview_coach                                                      #
 # ------------------------------------------------------------------ #

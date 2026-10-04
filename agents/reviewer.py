@@ -34,10 +34,14 @@ SYSTEM_PROMPT = """\
 개선된 Markdown 이력서만 출력하세요. 설명이나 부연은 불필요합니다.
 전체를 코드블록(```)으로 감싸지 마세요.
 초안에 없는 사실(회사, 기간, 수치, 보유 기술)을 새로 추가하지 마세요.
+초안에 있더라도 "지원자 경험 원문"에 근거가 없는 문장은 삭제하세요.
 """
 
 REVIEW_PROMPT_TEMPLATE = """\
-### 채용공고 요구사항 (키워드 참조용)
+### 지원자 경험 원문 (사실 확인 기준 — 이력서의 모든 사실은 여기에 근거가 있어야 함)
+{experiences_text}
+
+### 채용공고 요구사항 (키워드 참조용 — 지원자의 경험이 아님)
 {job_requirements_text}
 
 ### 지원자가 보유 근거가 없는 기술 (핵심 기술·경력에 추가 금지, "보완 계획"에만 언급 가능)
@@ -47,6 +51,14 @@ REVIEW_PROMPT_TEMPLATE = """\
 {resume_draft}
 
 ### 검토 체크리스트 — 아래 항목을 모두 수정하세요:
+
+0. 사실 검증 (가장 먼저)
+   - 경력 bullet: 해당 회사의 경력 원문에 적힌 업무·성과가 아니면 삭제
+     · 보유 기술 목록에만 있는 기술로 만든 업무 (예: 기술 목록에 Docker 만 있는데 "Docker 로 배포 자동화")
+     · 채용공고의 업무 문구를 옮겨 온 것
+     · 원문에서 "프로젝트"인 경험을 회사 경력에 넣은 것 (프로젝트 섹션으로 옮김)
+   - 자기소개·프로젝트: 원문에 없는 경험·규모·표현(예: "다양한 회사에서")은 삭제하거나 원문대로 고침
+   - 삭제해서 bullet 이 줄어도 괜찮음. 개수를 맞추려고 새 내용을 만들지 말 것
 
 1. 키워드 매칭
    - 초안에 이미 있는 경험 중 공고 키워드와 관련된 표현을 공고 용어로 맞춤
@@ -60,8 +72,7 @@ REVIEW_PROMPT_TEMPLATE = """\
 3. 수치화
    - 초안에 이미 있는 수치는 유지하고 문장 앞쪽으로 배치
    - 초안에 없는 숫자는 절대 새로 만들지 말 것 (사실이 아닌 수치는 면접에서 치명적)
-   - 수치가 없는 항목은 규모·범위·결과를 구체적인 말로 보강
-     (예: "성능 개선" → "주문 API 쿼리 구조를 개선해 피크 시간대 타임아웃 해소")
+   - 수치가 없는 항목은 원문에 적힌 범위 안에서만 구체적으로 다듬음 (원문에 없는 원인·방법·결과 추가 금지)
 
 4. 구조/포맷
    - ## 헤더, 불릿 포인트 일관성 확인
@@ -81,11 +92,15 @@ REVIEW_PROMPT_TEMPLATE = """\
 
 def build_review_prompt(state: GoodJobState) -> tuple[str, str]:
     """프롬프트와 시스템 메시지를 반환합니다 (스트리밍 등 외부 호출용)."""
+    # 초안을 원문과 대조해야 지어낸 업무를 걸러낼 수 있음 — 예전에는 원문을 주지 않아
+    # 초안의 허위 bullet 이 그대로 최종본에 남았음 (PROJECT_DOCS #025)
+    from agents.resume_writer import _format_experiences
+
     resume_draft: str = state.get("resume_draft") or ""
     job_requirements: dict = state.get("job_requirements") or {}
-    job_req_text = _format_requirements(job_requirements)
     prompt = REVIEW_PROMPT_TEMPLATE.format(
-        job_requirements_text=job_req_text,
+        experiences_text=_format_experiences(state.get("retrieved_experiences") or []),
+        job_requirements_text=_format_requirements(job_requirements),
         missing_skills=", ".join(state.get("missing_skills") or []) or "(없음)",
         resume_draft=resume_draft,
     )
@@ -109,7 +124,6 @@ def reviewer_node(state: GoodJobState) -> GoodJobState:
     errors: list[str] = state.get("errors") or []
 
     resume_draft: Optional[str] = state.get("resume_draft") or ""
-    job_requirements: dict = state.get("job_requirements") or {}
 
     if not resume_draft.strip():
         logger.warning("[reviewer] resume_draft 가 비어있습니다.")
@@ -118,19 +132,14 @@ def reviewer_node(state: GoodJobState) -> GoodJobState:
         state["resume_final"] = resume_draft
         return state
 
-    job_req_text = _format_requirements(job_requirements)
-    prompt = REVIEW_PROMPT_TEMPLATE.format(
-        job_requirements_text=job_req_text,
-        missing_skills=", ".join(state.get("missing_skills") or []) or "(없음)",
-        resume_draft=resume_draft,
-    )
+    prompt, system = build_review_prompt(state)
 
     try:
         from llm.factory import get_chat_client
         client = get_chat_client()
         resume_final = client.generate(
             prompt=prompt,
-            system=SYSTEM_PROMPT,
+            system=system,
             max_tokens=3000,
             temperature=0.2,  # 낮은 temperature → 일관된 교정
         )
