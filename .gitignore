@@ -103,3 +103,6 @@ test_out.txt
 test_err.txt
 test_output.txt
 C:/
+
+# Streamlit Secrets (Google 로그인 키·DB 주소)
+.streamlit/secrets.toml

@@ -28,7 +28,9 @@ uvicorn[standard]>=0.31.0
 python-multipart>=0.0.12
 
 # --- Frontend ---
-streamlit>=1.39.0
+streamlit>=1.42.0
+Authlib>=1.3.2  # st.login (Google 로그인)
+psycopg[binary]>=3.1  # Supabase(pgvector) 프로필 저장
 reportlab>=4.0.0          # PDF 이력서 출력
 
 # --- Configuration ---

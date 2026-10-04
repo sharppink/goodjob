@@ -4,12 +4,14 @@
 # 제외: torch·transformers 등 학습용 패키지, playwright(공고 상세 수집은 실패 시 검색 요약으로 대체됨)
 # 개인정보 보호 모드는 로컬 Ollama 가 필요해 클라우드에서는 자동으로 비활성화됨
 streamlit==1.65.0
+Authlib==1.8.0  # st.login (Google 로그인)
 reportlab==5.0.1
 openai==1.84.0
 langgraph==1.0.1
 langsmith==0.14.4
 ollama==0.6.3
 chromadb==1.5.9
+psycopg[binary]==3.3.6  # Supabase(pgvector) 프로필 저장
 pymupdf==1.28.2
 tavily-python==0.8.4
 httpx==0.28.1

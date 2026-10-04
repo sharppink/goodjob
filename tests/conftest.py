@@ -49,6 +49,7 @@ os.environ.update({
     "RERANKER_ENABLED": "false",
     "OLLAMA_BASE_URL": "http://127.0.0.1:9",
     "CHROMA_PERSIST_DIR": str(_SESSION_TMP / "chroma"),
+    "SUPABASE_DB_URL": "",
     "ANONYMIZED_TELEMETRY": "False",
 })
 
@@ -233,7 +234,11 @@ def isolated_env(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "PARSE_WITH_LOCAL_LLM", False)
     monkeypatch.setattr(settings, "RERANKER_ENABLED", False)
     monkeypatch.setattr(settings, "REDIS_ENABLED", False)
+    monkeypatch.setattr(settings, "SUPABASE_DB_URL", "")
     monkeypatch.setattr(vectorstore, "EmbeddingModel", FakeEmbeddingModel)
+    # 로그인 계정은 테스트마다 공용(None)에서 시작
+    vectorstore.set_current_user(None)
+    vectorstore.require_login(False)
 
     if Path(settings.CHROMA_PERSIST_DIR).resolve() == REAL_CHROMA_DIR:
         pytest.exit("테스트가 실제 chroma_db 를 가리킵니다 — 중단 (PROJECT_DOCS #009)", returncode=3)

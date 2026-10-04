@@ -13,6 +13,7 @@ fastapi
 uvicorn[standard]
 python-multipart
 streamlit
+Authlib
 reportlab
 
 # --- LLM / Agents ---
@@ -23,6 +24,7 @@ ollama
 
 # --- RAG ---
 chromadb
+psycopg[binary]
 pymupdf
 
 # --- Search / Scraping ---
