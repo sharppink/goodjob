@@ -222,6 +222,16 @@ class VectorStore:
         self._ensure_initialized()
         return self._collection.get(include=["documents"])["documents"]  # type: ignore[union-attr]
 
+    def get_all_entries(self) -> list[dict[str, Any]]:
+        """저장된 청크를 메타데이터와 함께 반환 (프로필 확인 화면용, 저장 순서)."""
+        self._ensure_initialized()
+        data = self._collection.get(include=["documents", "metadatas"])  # type: ignore[union-attr]
+        metadatas = data.get("metadatas") or [{}] * len(data["documents"])
+        return [
+            {"id": i, "document": d, "metadata": m or {}}
+            for i, d, m in zip(data["ids"], data["documents"], metadatas)
+        ]
+
     def delete_all(self) -> None:
         """
         Delete every document in the collection (useful for re-indexing).

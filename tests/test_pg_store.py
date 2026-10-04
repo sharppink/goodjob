@@ -38,6 +38,9 @@ def test_profile_roundtrip_and_account_isolation(pg):
     assert vs.count() == 3
     assert vs.similarity_search("FastAPI 백엔드", k=1) == ["Python FastAPI 백엔드"]
     assert len(vs.similarity_search("아무거나", k=10)) == 3
+    entries = vs.get_all_entries()
+    assert [e["document"] for e in entries] == ["Python FastAPI 백엔드", "React 프론트엔드", "Kubernetes 운영"]
+    assert entries[0]["metadata"] == {"source": "manual"}
 
     set_current_user("b@example.com")
     other = VectorStore()
