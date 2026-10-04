@@ -92,3 +92,18 @@ def test_allowed_emails_parsing(monkeypatch):
     assert settings.allowed_emails == {"a@x.com", "b@y.com"}
     monkeypatch.setattr(settings, "ALLOWED_EMAILS", "")
     assert settings.allowed_emails == set()
+
+
+def test_get_all_entries_returns_own_chunks_with_metadata_in_order():
+    """프로필 확인 화면용 — 자기 계정 청크만, 저장 순서대로, 출처 메타데이터 포함."""
+    set_current_user("a@example.com")
+    VectorStore().add_documents(["첫째", "둘째", "셋째"],
+                                metadatas=[{"type": "pdf", "filename": "cv.pdf", "section": "경력"}, {}, {}])
+    set_current_user("b@example.com")
+    VectorStore().add_documents(["B 의 경력"])
+
+    set_current_user("a@example.com")
+    entries = VectorStore().get_all_entries()
+    assert [e["document"] for e in entries] == ["첫째", "둘째", "셋째"]
+    assert entries[0]["metadata"] == {"type": "pdf", "filename": "cv.pdf", "section": "경력"}
+    assert entries[1]["metadata"] == {"source": "unspecified"}

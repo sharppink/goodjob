@@ -134,11 +134,12 @@ class PgCollection:
 
     def get(self, include: Optional[list[str]] = None) -> dict[str, Any]:
         rows = self._run(
-            f"select id, content from {TABLE_NAME} where collection = %s and user_key = %s "
-            f"order by created_at",
+            f"select id, content, metadata from {TABLE_NAME} where collection = %s and user_key = %s "
+            f"order by created_at, id",
             (self.name, self._user_key), fetch=True,
         )
-        return {"ids": [r[0] for r in rows], "documents": [r[1] for r in rows]}
+        return {"ids": [r[0] for r in rows], "documents": [r[1] for r in rows],
+                "metadatas": [r[2] or {} for r in rows]}
 
     def delete(self, ids: list[str]) -> None:
         self._run(

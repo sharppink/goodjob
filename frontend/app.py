@@ -344,6 +344,7 @@ def page_profile() -> None:
             f"✅ 프로필이 등록되어 있습니다 "
             f"({st.session_state['profile_chunk_count']}개 청크)"
         )
+        _my_profile_section()
         if not st.toggle("🔄 프로필 다시 등록", value=False):
             st.markdown("---")
             _star_section()
@@ -437,6 +438,42 @@ def page_profile() -> None:
 
     st.markdown("---")
     _star_section()
+
+
+def _chunk_label(meta: dict) -> str:
+    """청크 출처 표시 — 섹션 이름 우선, 없으면 등록 방식."""
+    if meta.get("type") == "star":
+        return "⭐ STAR 경험"
+    source = {"pdf": f"📄 {meta.get('filename') or 'PDF'}", "dict": "✏️ 직접 입력"}.get(
+        meta.get("type", ""), "📎 기타"
+    )
+    # 첫 섹션 헤더 앞부분은 ProfileLoader 가 "intro" 로 저장함
+    section = {"intro": "기본 정보"}.get(meta.get("section", ""), meta.get("section", ""))
+    return f"{source} · {section}" if section else source
+
+
+def _my_profile_section() -> None:
+    """로그인한 계정(또는 공용) 저장소에 실제로 저장된 프로필 내용을 그대로 보여 줌."""
+    with st.expander("📋 내 프로필 보기", expanded=False):
+        try:
+            from rag.vectorstore import VectorStore
+            entries = VectorStore().get_all_entries()
+        except Exception as exc:
+            st.error(f"프로필을 불러오지 못했습니다: {exc}")
+            return
+        if not entries:
+            st.info("저장된 프로필이 없습니다.")
+            return
+
+        star_count = sum(1 for e in entries if e["metadata"].get("type") == "star")
+        st.caption(
+            f"AI가 분석·이력서 작성에 참고하는 내용입니다. 총 {len(entries)}개 조각"
+            + (f" (STAR 경험 {star_count}개 포함)" if star_count else "")
+            + ". 긴 내용은 검색이 잘 되도록 앞뒤가 조금 겹치게 나눠 저장됩니다."
+        )
+        for i, entry in enumerate(entries, 1):
+            st.markdown(f"**{i}. {_chunk_label(entry['metadata'])}**")
+            st.text(entry["document"])
 
 
 def _star_section() -> None:
