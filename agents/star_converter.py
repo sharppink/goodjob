@@ -92,6 +92,12 @@ def convert_to_star(raw_text: str) -> list[dict[str, Any]]:
         system=SYSTEM_PROMPT,
     )
     experiences = [e.model_dump() for e in result.experiences]
+    for exp in experiences:
+        # 모델이 질문 대신 "(보완 필요)" 표시만 넣는 경우가 있어 제외 (#026)
+        exp["missing_info"] = [
+            q.strip() for q in exp["missing_info"]
+            if q.strip() and MISSING_MARK not in q
+        ]
     logger.info("[star_converter] %d개 경험 변환 완료.", len(experiences))
     return experiences
 

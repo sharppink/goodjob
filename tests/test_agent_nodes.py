@@ -195,6 +195,17 @@ def test_star_to_text_drops_missing_fields():
     assert "- 사용 기술: PostgreSQL" in text
 
 
+def test_convert_to_star_drops_placeholder_missing_info(fake_llm):
+    """#026: 질문 대신 '(보완 필요)' 표시만 들어간 missing_info 는 화면에 보이지 않게 제외."""
+    fake_llm.structured["STARResult"] = {"experiences": [
+        {"title": "캐시 도입", "situation": "느린 조회", "task": "개선", "action": "Redis",
+         "result": MISSING_MARK, "skills": ["Redis"],
+         "missing_info": [MISSING_MARK, f"결과: {MISSING_MARK}", "  ", " 개선 전후 응답시간은? "]},
+    ]}
+    stars = convert_to_star("Redis 캐시 넣어서 빨라짐")
+    assert stars[0]["missing_info"] == ["개선 전후 응답시간은?"]
+
+
 def test_star_experiences_are_stored_one_chunk_each(fake_llm, loaded_profile):
     fake_llm.structured["STARResult"] = {"experiences": [
         {"title": "캐시 도입", "situation": "느린 조회", "task": "개선", "action": "Redis",

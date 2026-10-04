@@ -407,13 +407,18 @@ def _star_section() -> None:
             "N+1 쿼리 고침. 응답속도 40% 정도 빨라짐"
         ),
     )
-    if st.button("✨ STAR로 변환", key="star_btn", disabled=not raw.strip()):
-        with st.spinner("STAR 구조로 변환 중…"):
-            try:
-                from agents.star_converter import convert_to_star
-                st.session_state["star_results"] = convert_to_star(raw)
-            except Exception as exc:
-                st.error(f"변환 오류: {exc}")
+    # disabled=not raw 로 두면 text_area 값이 포커스를 잃을 때 전달되는 탓에
+    # 입력 직후 첫 클릭이 비활성 버튼에 막혀 무시됨 (#026) → 클릭 후 검사
+    if st.button("✨ STAR로 변환", key="star_btn"):
+        if not raw.strip():
+            st.warning("경험 메모를 먼저 입력해 주세요.")
+        else:
+            with st.spinner("STAR 구조로 변환 중…"):
+                try:
+                    from agents.star_converter import convert_to_star
+                    st.session_state["star_results"] = convert_to_star(raw)
+                except Exception as exc:
+                    st.error(f"변환 오류: {exc}")
 
     stars = st.session_state["star_results"]
     if not stars:
