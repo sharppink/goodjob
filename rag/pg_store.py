@@ -36,6 +36,17 @@ create table if not exists {TABLE_NAME} (
 );
 create index if not exists {TABLE_NAME}_owner_idx on {TABLE_NAME} (collection, user_key);
 alter table {TABLE_NAME} enable row level security;
+-- Supabase 는 public 새 테이블에 anon/authenticated 권한을 기본으로 줌 → 회수
+-- (일반 Postgres(CI)에는 이 역할이 없어서 있는 경우에만)
+do $$
+begin
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+        execute 'revoke all on table {TABLE_NAME} from anon';
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+        execute 'revoke all on table {TABLE_NAME} from authenticated';
+    end if;
+end $$;
 """
 
 # 프로세스 전체에서 접속 하나를 공유 (Streamlit 세션마다 새로 접속하면 Supabase 접속 수 한도에 걸림)
