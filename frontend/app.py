@@ -131,6 +131,11 @@ _DEFAULTS: dict[str, Any] = {
     "pipeline_errors": [],
     "pipeline_ran": False,
     "interview_questions": [],
+    # 공고 입력 — 자동 검색 결과 (None = 아직 검색 안 함)
+    "search_result": None,
+    # 공고가 아니라고 판정돼 분석을 멈춘 텍스트 / 사용자가 그래도 진행하기로 한 텍스트 (#028)
+    "non_posting_blocked_text": "",
+    "non_posting_ok_text": "",
     # STAR 경험 정리
     "star_results": [],
     # 자소서 문항
@@ -653,28 +658,41 @@ def _job_input_image(company_name: str) -> None:
 
 
 def _job_input_search(company_name: str) -> None:
+    """검색된 페이지 중 개별 채용공고로 판정된 것만 보여 주고, 사용자가 고른 공고를 입력으로 씀 (#028)."""
     role = st.text_input("직군 키워드", value="백엔드 엔지니어", key="search_role")
     if st.button("🔎 채용공고 검색", disabled=not company_name, key="search_btn"):
-        with st.spinner(f"'{company_name}' 채용 정보 검색 중… (Tavily API)"):
+        with st.spinner(f"'{company_name}' 채용공고 검색 중… (Tavily 검색 → 공고 여부 판정)"):
             try:
-                from search.pipeline import JobSearchPipeline
-                pipeline = JobSearchPipeline()
-                result = pipeline.run(
-                    company_name=company_name,
-                    role=role,
-                    fetch_detail=False,
-                )
-                posting_text = result.get("job_posting_text", "")
-                if posting_text:
-                    st.session_state["job_posting_text"] = posting_text
-                    with st.expander("검색된 회사 정보"):
-                        st.write(result.get("summary", ""))
-                    st.success("✅ 채용공고 검색 완료!")
-                    st.rerun()
-                else:
-                    st.warning("검색 결과가 없습니다. 직접 붙여넣기를 사용해 주세요.")
+                from search.pipeline import find_job_postings
+                st.session_state["search_result"] = find_job_postings(company_name, role)
             except Exception as exc:
+                st.session_state["search_result"] = None
                 st.error(f"검색 오류: {exc}")
+
+    result = st.session_state["search_result"]
+    if result is None:
+        return
+    postings = result["postings"]
+    if not postings:
+        st.warning(
+            f"검색된 페이지 {result['found']}개 중 개별 채용공고로 판정된 것이 없습니다 "
+            f"(블로그·소개 글·목록 페이지 제외, {result['checked']}개 확인). "
+            "공고 페이지의 내용을 '직접 붙여넣기' 로 입력해 주세요."
+        )
+        return
+
+    def _label(i: int) -> str:
+        req = postings[i]["requirements"]
+        head = " · ".join(x for x in [req.get("company_name"), req.get("job_title")] if x)
+        return f"{head} — {postings[i]['title']}" if head else postings[i]["title"]
+
+    st.caption(f"개별 채용공고로 판정된 페이지 {len(postings)}개 (검색 {result['found']}개 중)")
+    idx = st.radio("사용할 공고", options=range(len(postings)), format_func=_label, key="search_pick")
+    if postings[idx]["url"]:
+        st.caption(f"출처: {postings[idx]['url']}")
+    if st.button("✅ 이 공고 사용", key="search_use"):
+        st.session_state["job_posting_text"] = postings[idx]["raw_text"]
+        st.rerun()
 
 
 # ------------------------------------------------------------------ #
@@ -694,6 +712,27 @@ def page_analysis() -> None:
         ready = False
 
     if not ready:
+        return
+
+    # ── 공고가 아닌 글로 판정돼 멈춘 경우 (#028) ─────────────────────
+    posting_text = st.session_state["job_posting_text"]
+    if not st.session_state["pipeline_ran"] and st.session_state["non_posting_blocked_text"] == posting_text:
+        st.warning(
+            "입력한 글이 **채용공고가 아닌 것으로 판정**되어 분석을 멈췄습니다. "
+            "(블로그 기사, 회사 소개, 여러 공고 목록 등)\n\n"
+            "이대로 진행하면 공고에 없는 요구사항으로 이력서가 만들어질 수 있습니다."
+        )
+        col_back, col_go = st.columns(2)
+        with col_back:
+            if st.button("🏢 공고 다시 입력", type="primary", use_container_width=True):
+                st.session_state["nav_to"] = "공고 입력"
+                st.rerun()
+        with col_go:
+            if st.button("그래도 분석 계속", use_container_width=True):
+                st.session_state["non_posting_ok_text"] = posting_text
+                st.session_state["non_posting_blocked_text"] = ""
+                _run_pipeline()
+                st.rerun()
         return
 
     # ── 실행 버튼 ────────────────────────────────────────────────────
@@ -779,6 +818,18 @@ def _run_pipeline() -> None:
         state = job_parser_node(state)
         _update_node("job_parser", "done", "채용공고 파싱")
         progress_bar.progress(20)
+
+        # 채용공고가 아닌 글(블로그 기사·소개 글 등)이면 여기서 멈추고 사용자 확인을 받음 (#028).
+        # 파싱 자체가 실패한 경우(빈 결과)는 판정이 아니므로 막지 않음
+        posting_text = st.session_state["job_posting_text"]
+        parse_failed = any(e.startswith("job_parser") for e in state.get("errors") or [])
+        if (
+            not parse_failed
+            and not (state.get("job_requirements") or {}).get("is_job_posting", True)
+            and st.session_state["non_posting_ok_text"] != posting_text
+        ):
+            st.session_state["non_posting_blocked_text"] = posting_text
+            return
 
         # ── 노드 2: rag_retriever ───────────────────────────────────
         _update_node("rag_retriever", "active", "경험 검색 (RAG)")
