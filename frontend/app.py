@@ -183,6 +183,7 @@ def _require_login() -> None:
         st.markdown("## 💼 GoodJob")
         st.write("AI 기반 채용 매칭 & 이력서 생성 — 계정마다 프로필을 따로 저장합니다.")
         st.button("Google 계정으로 로그인", type="primary", on_click=st.login)
+        st.caption(f"[개인정보처리방침](?page={PRIVACY_QUERY_VALUE})")
         st.stop()
 
     email = (st.user.get("email") or "").strip().lower()
@@ -201,6 +202,13 @@ def _require_login() -> None:
             st.session_state[_k] = _v
     set_current_user(email)
 
+
+# 개인정보처리방침은 로그인 없이 공개 (Google OAuth 동의 화면에 링크) — ?page=privacy
+from frontend.privacy import PRIVACY_QUERY_VALUE, render_privacy_policy
+
+if st.query_params.get("page") == PRIVACY_QUERY_VALUE:
+    render_privacy_policy()
+    st.stop()
 
 if AUTH_ENABLED:
     _require_login()
@@ -292,6 +300,7 @@ def render_sidebar() -> str:
             usage = _usage_caption()
             if usage:
                 st.caption(usage)
+            st.caption(f"[개인정보처리방침](?page={PRIVACY_QUERY_VALUE})")
 
         ollama_ok = _ollama_reachable()
         privacy = st.toggle(
@@ -506,6 +515,20 @@ def _my_profile_section() -> None:
         for i, entry in enumerate(entries, 1):
             st.markdown(f"**{i}. {_chunk_label(entry['metadata'])}**")
             st.text(entry["document"])
+
+        st.divider()
+        confirm = st.checkbox("저장된 프로필을 모두 지우는 데 동의합니다 (되돌릴 수 없음)", key="profile_delete_confirm")
+        if st.button("🗑️ 내 프로필 삭제", disabled=not confirm, key="profile_delete_btn"):
+            try:
+                from rag.vectorstore import VectorStore
+                VectorStore().delete_all()
+            except Exception as exc:
+                st.error(f"삭제하지 못했습니다: {exc}")
+                return
+            for k in ["profile_indexed", "profile_chunk_count", "star_results"]:
+                st.session_state[k] = _DEFAULTS[k]
+            st.session_state.pop("profile_delete_confirm", None)
+            st.rerun()
 
 
 def _star_section() -> None:
