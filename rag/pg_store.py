@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 TABLE_NAME = "goodjob_profile_chunks"
 USAGE_TABLE_NAME = "goodjob_usage"  # 계정별 하루 사용 횟수 (llm/usage_limit.py)
+APPLICATIONS_TABLE_NAME = "goodjob_applications"  # 지원 현황 보드 (tracker/applications.py)
 
 _SCHEMA_SQL = f"""
 create extension if not exists vector;
@@ -43,8 +44,22 @@ create table if not exists {USAGE_TABLE_NAME} (
     count       integer not null default 0,
     primary key (user_key, day, action)
 );
+create table if not exists {APPLICATIONS_TABLE_NAME} (
+    id            text primary key,
+    user_key      text not null,
+    company       text not null,
+    job_title     text not null default '',
+    stage         text not null,
+    fit_score     double precision,
+    resume        text not null default '',
+    posting_hash  text not null,
+    created_at    timestamptz not null default now(),
+    updated_at    timestamptz not null default now()
+);
+create index if not exists {APPLICATIONS_TABLE_NAME}_owner_idx on {APPLICATIONS_TABLE_NAME} (user_key);
 alter table {TABLE_NAME} enable row level security;
 alter table {USAGE_TABLE_NAME} enable row level security;
+alter table {APPLICATIONS_TABLE_NAME} enable row level security;
 -- Supabase 는 public 새 테이블에 anon/authenticated 권한을 기본으로 줌 → 회수
 -- (일반 Postgres(CI)에는 이 역할이 없어서 있는 경우에만)
 do $$
@@ -52,10 +67,12 @@ begin
     if exists (select 1 from pg_roles where rolname = 'anon') then
         execute 'revoke all on table {TABLE_NAME} from anon';
         execute 'revoke all on table {USAGE_TABLE_NAME} from anon';
+        execute 'revoke all on table {APPLICATIONS_TABLE_NAME} from anon';
     end if;
     if exists (select 1 from pg_roles where rolname = 'authenticated') then
         execute 'revoke all on table {TABLE_NAME} from authenticated';
         execute 'revoke all on table {USAGE_TABLE_NAME} from authenticated';
+        execute 'revoke all on table {APPLICATIONS_TABLE_NAME} from authenticated';
     end if;
 end $$;
 """

@@ -26,6 +26,7 @@ def pg(monkeypatch):
     with psycopg.connect(DB_URL, autocommit=True) as conn:
         conn.execute(f"drop table if exists {pg_store.TABLE_NAME}")
         conn.execute(f"drop table if exists {pg_store.USAGE_TABLE_NAME}")
+        conn.execute(f"drop table if exists {pg_store.APPLICATIONS_TABLE_NAME}")
     yield DB_URL
 
 
@@ -66,9 +67,10 @@ def test_table_has_row_level_security(pg):
     with psycopg.connect(DB_URL) as conn:
         rows = conn.execute(
             "select relname, relrowsecurity from pg_class where relname = any(%s) order by relname",
-            ([pg_store.TABLE_NAME, pg_store.USAGE_TABLE_NAME],),
+            ([pg_store.TABLE_NAME, pg_store.USAGE_TABLE_NAME, pg_store.APPLICATIONS_TABLE_NAME],),
         ).fetchall()
-    assert rows == [(pg_store.TABLE_NAME, True), (pg_store.USAGE_TABLE_NAME, True)]
+    assert rows == [(pg_store.APPLICATIONS_TABLE_NAME, True), (pg_store.TABLE_NAME, True),
+                    (pg_store.USAGE_TABLE_NAME, True)]
 
 
 def test_email_is_not_stored(pg):
@@ -111,3 +113,28 @@ def test_usage_limit_persists_in_db(pg, monkeypatch):
         ).fetchall()
     assert [(a, c) for _, a, c in rows] == [("*all*", 2), ("analysis", 2)]
     assert "quota" not in str(rows), "이메일 원문은 저장하지 않음"
+
+
+def test_applications_roundtrip_in_db(pg):
+    """지원 현황 카드가 Supabase 에 계정별로 저장되고 단계 이동·갱신·삭제가 반영됨."""
+    from rag.vectorstore import set_current_user
+    from tracker import applications as ap
+
+    set_current_user("board@example.com")
+    try:
+        card = ap.save_draft("당근", "백엔드", "# v1", 0.7, "공고")
+        ap.set_stages({card["id"]: "면접"})
+        ap.save_draft("당근", "백엔드", "# v2", 0.9, "공고")  # 같은 공고 → 갱신
+        apps = ap.list_applications()
+        assert len(apps) == 1
+        assert (apps[0]["stage"], apps[0]["resume"], apps[0]["fit_score"]) == ("면접", "# v2", 0.9)
+
+        set_current_user("other@example.com")
+        assert ap.list_applications() == []
+
+        set_current_user("board@example.com")
+        ap.delete_application(card["id"])
+        assert ap.list_applications() == []
+    finally:
+        set_current_user(None)
+

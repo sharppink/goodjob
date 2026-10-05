@@ -39,6 +39,7 @@ COPY --chown=goodjob:goodjob api ./api
 COPY --chown=goodjob:goodjob llm ./llm
 COPY --chown=goodjob:goodjob rag ./rag
 COPY --chown=goodjob:goodjob search ./search
+COPY --chown=goodjob:goodjob tracker ./tracker
 
 USER goodjob
 
