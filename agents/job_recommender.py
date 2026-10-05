@@ -175,9 +175,10 @@ def suggest_queries_from_profile(
 # ------------------------------------------------------------------ #
 
 def _collect_postings_multi(queries: list[str], max_count: int = MAX_CANDIDATES) -> list[dict[str, Any]]:
-    """검색어마다 공고를 모아 URL 중복을 빼고, 검색어별로 번갈아 담아 max_count 개로 자릅니다."""
+    """검색어마다 공고를 모아 URL·제목 중복을 빼고, 검색어별로 번갈아 담아 max_count 개로 자릅니다."""
     per_query = [_collect_postings(q, max_count=max_count) for q in queries]
-    seen: set[str] = set()
+    seen_urls: set[str] = set()
+    seen_titles: set[str] = set()
     merged: list[dict[str, Any]] = []
     # 첫 검색어 결과만으로 자리가 다 차지 않도록 라운드로빈으로 섞음
     for i in range(max((len(p) for p in per_query), default=0)):
@@ -185,12 +186,23 @@ def _collect_postings_multi(queries: list[str], max_count: int = MAX_CANDIDATES)
             if i >= len(postings):
                 continue
             item = postings[i]
-            key = item.get("url") or item.get("title", "")
-            if key in seen:
+            url = item.get("url", "")
+            # 같은 공고가 다른 주소로 여러 검색어에 걸리는 경우가 있어 제목으로도 판정 (PROJECT_DOCS #033)
+            title = _normalize_title(item.get("title", ""))
+            if (url and url in seen_urls) or (title and title in seen_titles):
                 continue
-            seen.add(key)
+            seen_urls.add(url)
+            seen_titles.add(title)
             merged.append(item)
     return merged[:max_count]
+
+
+def _normalize_title(title: str) -> str:
+    """중복 판정용 제목: 법인 표기·사이트명 꼬리(| 원티드 등)·기호·공백·대소문자 차이를 없앰."""
+    import re
+    title = re.sub(r"\s+[|｜]\s+[^|｜]*$", "", title)  # "... | 원티드" 같은 사이트명 꼬리
+    title = re.sub(r"\(주\)|㈜|주식회사", "", title)
+    return re.sub(r"[\W_]+", "", title).lower()
 
 
 def _collect_postings(query: str, max_count: int = MAX_CANDIDATES) -> list[dict[str, Any]]:
@@ -206,7 +218,7 @@ def _collect_postings(query: str, max_count: int = MAX_CANDIDATES) -> list[dict[
             content = item.get("content", "").strip()
             if len(content) < 100:
                 continue
-            if _is_listing_url(item.get("url", "")):
+            if _is_listing_url(item.get("url", "")) or _is_listing_title(item.get("title", "")):
                 continue  # 검색/목록 페이지는 개별 공고가 아님
             postings.append({
                 "raw_text": content,
@@ -235,6 +247,29 @@ def _is_listing_url(url: str) -> bool:
             re.IGNORECASE,
         )
     return bool(_LISTING_URL_PATTERN.search(url))
+
+
+_LISTING_TITLE_PATTERN = None
+
+
+def _is_listing_title(title: str) -> bool:
+    """여러 공고를 모은 목록 페이지 제목인지 판별합니다 — URL 로 못 거르는 해외 사이트용 (PROJECT_DOCS #027).
+
+    예: "Best Python Jobs in NYC", "$128k-$180k Fastapi Jobs (NOW HIRING)", "1,234 Python jobs",
+        "백엔드 채용공고 120건"
+    """
+    import re
+    global _LISTING_TITLE_PATTERN
+    if _LISTING_TITLE_PATTERN is None:
+        _LISTING_TITLE_PATTERN = re.compile(
+            r"now\s+hiring"
+            r"|\bjobs\s+(?:in|near|for)\b"
+            r"|\bjobs\s*\("
+            r"|\d[\d,]*\+?\s+(?:[\w#+./-]+\s+){0,4}jobs\b"
+            r"|\d[\d,]*\s*건의?\s*(?:채용|공고)|(?:채용|공고)\s*\d[\d,]*\s*건|채용\s*정보\s*모음",
+            re.IGNORECASE,
+        )
+    return bool(_LISTING_TITLE_PATTERN.search(title))
 
 
 def _extract_company(title: str, url: str) -> str:

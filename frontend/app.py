@@ -1202,10 +1202,10 @@ def page_job_recommend() -> None:
             # 헤더 행
             h_col, s_col = st.columns([4, 1])
             with h_col:
-                link = f"[{title}]({url})" if url else title
+                link = f"[{_md_plain(title)}]({url})" if url else _md_plain(title)
                 st.markdown(f"### {rank}위 · {link}")
                 if company:
-                    st.caption(f"🏢 {company}")
+                    st.caption(f"🏢 {_md_plain(company)}")
             with s_col:
                 st.markdown(
                     f"<div style='text-align:center;background:white;border-radius:10px;"
@@ -1244,7 +1244,7 @@ def page_job_recommend() -> None:
                         st.write(f"급여: {req['salary_range']}")
                 with detail_cols[1]:
                     st.markdown("**AI 분석**")
-                    st.write(feedback[:300] + ("…" if len(feedback) > 300 else ""))
+                    st.write(_md_plain(feedback[:300] + ("…" if len(feedback) > 300 else "")))
 
             # 이 공고로 이력서 생성 버튼
             if st.button(
@@ -1265,6 +1265,11 @@ def page_job_recommend() -> None:
             st.divider()
 
     _render_rec_errors()
+
+
+def _md_plain(text: str) -> str:
+    """외부 텍스트의 '$' 가 마크다운 수식(LaTeX)으로 해석되지 않게 이스케이프 (PROJECT_DOCS #034)."""
+    return text.replace("$", r"\$")
 
 
 def _render_rec_errors() -> None:
