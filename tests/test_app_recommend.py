@@ -26,7 +26,7 @@ def test_profile_mode_runs_without_keyword(monkeypatch, loaded_profile):
         return {
             "recommendation_queries": ["Python 백엔드", "FastAPI 개발자"],
             "ranked_matches": [{
-                "rank": 1, "company": "테스트컴퍼니", "title": "백엔드 개발자", "url": "https://x",
+                "rank": 1, "company": "테스트컴퍼니", "title": "$100k-$150k 백엔드 개발자", "url": "https://x",
                 "fit_score": 0.8, "fit_feedback": "좋음", "requirements": {"required_skills": ["Python"]},
             }],
             "errors": [],
@@ -43,6 +43,8 @@ def test_profile_mode_runs_without_keyword(monkeypatch, loaded_profile):
     assert seen[0]["recommendation_query"] == ""
     assert any("Python 백엔드" in c.value and "FastAPI 개발자" in c.value for c in at.caption)
     assert "내 프로필에 맞는 공고 1개 추천" in at.success[0].value
+    # #034: 제목의 '$' 가 수식으로 해석되지 않게 이스케이프
+    assert any(r"[\$100k-\$150k 백엔드 개발자](https://x)" in m.value for m in at.markdown)
 
 
 def test_keyword_mode_passes_keyword(monkeypatch, loaded_profile):

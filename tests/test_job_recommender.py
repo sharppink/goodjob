@@ -81,6 +81,33 @@ def test_collect_multi_interleaves_and_dedupes(fake_search):
     assert [p["url"] for p in merged] == ["a1", "dup", "b2"]
 
 
+def test_collect_multi_dedupes_same_title_with_different_url(fake_search):
+    """#033: 같은 공고가 다른 주소로 두 검색어에 걸리면 하나만 남김."""
+    _, results = fake_search
+    a = {**_posting("https://saramin/1"), "title": "(주)차후 2026 백엔드 개발자 경력 채용"}
+    b = {**_posting("https://jobkorea/9"), "title": "㈜차후 2026 백엔드  개발자 경력 채용 | 잡코리아"}
+    other = {**_posting("https://x/2"), "title": "차후 2026 프론트엔드 개발자 채용"}
+    results["A"] = [a]
+    results["B"] = [b, other]
+    merged = _collect_postings_multi(["A", "B"])
+    assert [p["url"] for p in merged] == ["https://saramin/1", "https://x/2"]
+
+
+@pytest.mark.parametrize("title, expected", [
+    ("$128k-$180k Fastapi Jobs (NOW HIRING) Oct 2026", True),
+    ("Best Python Jobs in NYC, NY 2026 | Built In NYC", True),
+    ("1,234 Python developer jobs", True),
+    ("백엔드 개발자 채용공고 120건", True),
+    ("[(주)더페어글로벌] 백엔드 개발자 (Python)", False),
+    ("Backend Engineer (Python) - Toss", False),
+    ("[리소리우스] [인턴]백엔드 개발자 (Python, FastAPI/Django) 채용 공고 | 원티드", False),
+    ("2026 백엔드 개발자 3명 채용", False),
+])
+def test_is_listing_title(title, expected):
+    """#027: URL 로 못 거르는 목록 페이지를 제목으로 판별."""
+    assert job_recommender._is_listing_title(title) is expected
+
+
 # ------------------------------------------------------------------ #
 # job_recommender_node                                                 #
 # ------------------------------------------------------------------ #
