@@ -329,8 +329,8 @@ def render_sidebar() -> str:
                 st.caption("보호 모드는 로컬 Ollama 가 실행 중인 PC 에서만 사용할 수 있습니다.")
         st.divider()
 
-        pages = ["프로필 등록", "공고 입력", "분석 & 이력서", "자소서 문항", "공고 추천"]
-        icons  = ["👤",          "🏢",        "🚀",          "📝",          "🔎"]
+        pages = ["프로필 등록", "공고 입력", "분석 & 이력서", "자소서 문항", "공고 추천", "지원 현황"]
+        icons  = ["👤",          "🏢",        "🚀",          "📝",          "🔎",       "📌"]
 
         # 버튼으로 이동 요청(nav_to)이 있으면 위젯 생성 전에 반영.
         # index= 를 매번 바꾸면 위젯이 새로 만들어져 한 박자 늦게 이동하는 문제가 있어 key 로 관리
@@ -974,6 +974,8 @@ def _run_pipeline() -> None:
             "pipeline_errors":  state.get("errors", []),
             "pipeline_ran":     True,
         })
+        if state.get("resume_final"):
+            _add_to_board(state)
 
     except Exception as exc:
         st.error(f"파이프라인 오류: {exc}")
@@ -1220,6 +1222,98 @@ def page_coverletter() -> None:
                        file_name="coverletter_answer.txt", mime="text/plain")
 
 
+def _add_to_board(state: dict) -> None:
+    """생성한 이력서를 지원 현황의 '작성 중' 에 넣음. 실패해도 분석 결과는 그대로 보여 줌."""
+    try:
+        from tracker.applications import save_draft
+        save_draft(
+            company=st.session_state["company_name"],
+            job_title=(state.get("job_requirements") or {}).get("job_title", ""),
+            resume=state.get("resume_final", ""),
+            fit_score=state.get("fit_score"),
+            posting_text=st.session_state["job_posting_text"],
+        )
+        st.toast("📌 지원 현황의 '작성 중' 에 추가했습니다.")
+    except Exception as exc:
+        st.warning(f"지원 현황에 추가하지 못했습니다: {exc}")
+
+
+# ------------------------------------------------------------------ #
+# Page 6: 지원 현황                                                    #
+# ------------------------------------------------------------------ #
+
+_BOARD_STYLE = """
+.sortable-component { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.sortable-container { background-color: #f1f5f9; border-radius: 10px; min-height: 160px; width: auto !important; margin: 0 !important; }
+.sortable-container-header { background-color: #e2e8f0; color: #1f2937; font-weight: 700;
+                             border-radius: 10px 10px 0 0; padding: 6px 10px; }
+.sortable-item, .sortable-item:hover { background-color: #ffffff; color: #1f2937;
+                                       border: 1px solid #e5e7eb; border-radius: 8px; font-size: 0.85rem; }
+"""
+
+
+def page_applications() -> None:
+    from tracker.applications import (
+        STAGES, board_columns, delete_application, list_applications, set_stages, stage_changes,
+    )
+
+    st.header("📌 지원 현황")
+    st.caption(
+        "분석 & 이력서에서 이력서를 만들면 '작성 중' 에 자동으로 들어갑니다. "
+        "카드를 끌어서 지원 단계를 옮기세요."
+    )
+    try:
+        apps = list_applications()
+    except Exception as exc:
+        st.error(f"지원 현황을 불러오지 못했습니다: {exc}")
+        return
+    if not apps:
+        st.info("아직 카드가 없습니다. '분석 & 이력서' 에서 이력서를 생성해 보세요.")
+        return
+
+    counts = " · ".join(f"{stage} {sum(a['stage'] == stage for a in apps)}" for stage in STAGES)
+    st.caption(f"총 {len(apps)}개 — {counts}")
+
+    from streamlit_sortables import sort_items
+
+    # 저장할 때마다 key 를 바꿔 보드를 새로 그림 (드래그 결과가 이전 상태에 남지 않도록)
+    version = st.session_state.setdefault("board_version", 0)
+    result = sort_items(
+        board_columns(apps), multi_containers=True, direction="vertical",
+        custom_style=_BOARD_STYLE, key=f"app_board_{version}",
+    )
+    changes = stage_changes(apps, result)
+    if changes:
+        set_stages(changes)
+        st.session_state["board_version"] = version + 1
+        st.rerun()
+
+    # ── 카드 상세 ────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("카드 상세")
+    labels = {a["id"]: f"[{a['stage']}] {a['company']} · {a['job_title'] or '직무 미확인'}" for a in apps}
+    app_id = st.selectbox("카드 선택", options=list(labels), format_func=labels.get, key="board_pick")
+    app = next(a for a in apps if a["id"] == app_id)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("단계", app["stage"])
+    c2.metric("적합도", f"{app['fit_score']:.0%}" if isinstance(app["fit_score"], (int, float)) else "-")
+    c3.metric("마지막 수정", str(app["updated_at"])[:10])
+
+    with st.expander("📄 이력서 보기", expanded=False):
+        st.markdown(app["resume"] or "_(이력서 없음)_")
+    st.download_button(
+        "⬇️ 이력서 내려받기 (.md)", data=app["resume"] or "", file_name=f"{app['company']}_이력서.md",
+        mime="text/markdown", key=f"board_dl_{app_id}",
+    )
+
+    confirm = st.checkbox("이 카드를 삭제합니다 (되돌릴 수 없음)", key=f"board_del_ok_{app_id}")
+    if st.button("🗑️ 카드 삭제", disabled=not confirm, key=f"board_del_{app_id}"):
+        delete_application(app_id)
+        st.session_state["board_version"] = version + 1
+        st.rerun()
+
+
 def page_job_recommend() -> None:
     st.header("🔎 내 프로필에 맞는 공고 추천")
     st.caption("등록한 프로필을 바탕으로 AI가 채용공고를 수집·분석하여 적합도 순으로 추천합니다.")
@@ -1414,6 +1508,8 @@ def main() -> None:
         page_coverletter()
     elif page == "공고 추천":
         page_job_recommend()
+    elif page == "지원 현황":
+        page_applications()
 
 
 if __name__ == "__main__":

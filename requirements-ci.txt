@@ -15,3 +15,4 @@ ollama
 redis
 reportlab
 streamlit  # tests/test_app_login.py (AppTest)
+streamlit-sortables  # tests/test_applications.py (지원 현황 화면)
