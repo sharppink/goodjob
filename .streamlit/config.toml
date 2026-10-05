@@ -9,3 +9,8 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+[theme]
+# 앱 CSS 가 본문 배경을 밝은 색(#f8f9fb)으로 고정하므로 테마도 라이트로 고정.
+# 지정하지 않으면 PC·브라우저가 다크 모드일 때 글자만 흰색이 되어 보이지 않음 (PROJECT_DOCS #035)
+base = "light"
