@@ -22,6 +22,7 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 TABLE_NAME = "goodjob_profile_chunks"
+USAGE_TABLE_NAME = "goodjob_usage"  # 계정별 하루 사용 횟수 (llm/usage_limit.py)
 
 _SCHEMA_SQL = f"""
 create extension if not exists vector;
@@ -35,16 +36,26 @@ create table if not exists {TABLE_NAME} (
     created_at  timestamptz not null default now()
 );
 create index if not exists {TABLE_NAME}_owner_idx on {TABLE_NAME} (collection, user_key);
+create table if not exists {USAGE_TABLE_NAME} (
+    user_key    text not null,
+    day         date not null,
+    action      text not null,
+    count       integer not null default 0,
+    primary key (user_key, day, action)
+);
 alter table {TABLE_NAME} enable row level security;
+alter table {USAGE_TABLE_NAME} enable row level security;
 -- Supabase 는 public 새 테이블에 anon/authenticated 권한을 기본으로 줌 → 회수
 -- (일반 Postgres(CI)에는 이 역할이 없어서 있는 경우에만)
 do $$
 begin
     if exists (select 1 from pg_roles where rolname = 'anon') then
         execute 'revoke all on table {TABLE_NAME} from anon';
+        execute 'revoke all on table {USAGE_TABLE_NAME} from anon';
     end if;
     if exists (select 1 from pg_roles where rolname = 'authenticated') then
         execute 'revoke all on table {TABLE_NAME} from authenticated';
+        execute 'revoke all on table {USAGE_TABLE_NAME} from authenticated';
     end if;
 end $$;
 """
@@ -75,6 +86,26 @@ def _get_conn(url: str):
     return _conn
 
 
+def execute(url: str, sql: str, params: tuple = (), fetch: bool = False) -> list[tuple]:
+    """공유 접속으로 SQL 하나를 실행 (스키마는 첫 접속 때 만들어짐)."""
+    global _conn
+    import psycopg
+
+    with _conn_lock:
+        for attempt in range(2):
+            try:
+                conn = _get_conn(url)
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    return cur.fetchall() if fetch else []
+            except psycopg.OperationalError:
+                # 오래 쉬면 pooler 가 접속을 끊음 → 한 번만 다시 접속
+                _conn = None
+                if attempt:
+                    raise
+    return []
+
+
 def _vector_literal(embedding: list[float]) -> str:
     return "[" + ",".join(repr(float(x)) for x in embedding) + "]"
 
@@ -88,22 +119,7 @@ class PgCollection:
         self._user_key = user_key
 
     def _run(self, sql: str, params: tuple = (), fetch: bool = False) -> list[tuple]:
-        global _conn
-        import psycopg
-
-        with _conn_lock:
-            for attempt in range(2):
-                try:
-                    conn = _get_conn(self._url)
-                    with conn.cursor() as cur:
-                        cur.execute(sql, params)
-                        return cur.fetchall() if fetch else []
-                except psycopg.OperationalError:
-                    # 오래 쉬면 pooler 가 접속을 끊음 → 한 번만 다시 접속
-                    _conn = None
-                    if attempt:
-                        raise
-        return []
+        return execute(self._url, sql, params, fetch)
 
     def count(self) -> int:
         rows = self._run(

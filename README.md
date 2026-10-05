@@ -193,6 +193,7 @@ Secrets에 `[auth]`가 있으면 Google 로그인이 켜지고, 계정마다 프
 ```toml
 SUPABASE_DB_URL = "postgresql://postgres.<project-ref>:<비밀번호>@aws-0-<region>.pooler.supabase.com:6543/postgres"
 ALLOWED_EMAILS = "me@gmail.com, friend@gmail.com"   # 비우면 Google 계정 누구나
+USAGE_EXEMPT_EMAILS = "me@gmail.com"                 # 사용량 제한을 받지 않는 계정
 
 [auth]
 redirect_uri = "https://<앱 주소>/oauth2callback"
@@ -205,6 +206,10 @@ server_metadata_url = "https://accounts.google.com/.well-known/openid-configurat
 - 계정은 이메일의 SHA-256 해시로 구분하며, DB에 이메일 원문은 저장하지 않습니다.
 - 개인정보 보호 모드에서는 Supabase 설정이 있어도 프로필을 로컬 Chroma에만 저장합니다.
 - FastAPI 서버는 아직 로그인을 쓰지 않고 공용 프로필 하나로 동작합니다.
+- **사용량 제한:** 로그인한 계정은 기능별로 하루 실행 횟수가 정해져 있습니다
+  (기본: 분석 5 · 공고 추천 2 · 자동 검색 5 · 이미지 5 · 자소서 5 · STAR 10, 전체 계정 합계 100).
+  `USAGE_DAILY_LIMITS`, `USAGE_GLOBAL_DAILY_LIMIT`로 바꾸며, 횟수는 Supabase `goodjob_usage` 테이블에 저장됩니다.
+  누구나 쓰도록 공개할 때는 OpenAI 대시보드의 월 예산 한도도 함께 걸어 두세요.
 
 ### 5. 테스트
 

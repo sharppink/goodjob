@@ -216,6 +216,28 @@ def _apply_privacy_mode(enabled: bool) -> None:
     _refresh_profile_status()
 
 
+def _use_quota(action: str) -> bool:
+    """오늘 사용 한도 안이면 1회 차감하고 True, 넘었으면 경고를 띄우고 False (llm/usage_limit.py)."""
+    from llm.usage_limit import UsageLimitExceeded, consume
+    try:
+        consume(action)
+        return True
+    except UsageLimitExceeded as exc:
+        st.warning(f"⏳ {exc}")
+        return False
+
+
+def _usage_caption() -> str:
+    """사이드바에 보여 줄 오늘 남은 횟수 (제한이 없는 계정이면 빈 문자열)."""
+    from llm.usage_limit import ACTION_LABELS, remaining_all
+    try:
+        left = remaining_all()
+    except Exception:
+        return ""  # 표시용이라 저장소 오류로 화면을 막지 않음
+    parts = [f"{ACTION_LABELS.get(a, a)} {n}회" for a, n in left.items()]
+    return "오늘 남은 횟수: " + " · ".join(parts) if parts else ""
+
+
 def _refresh_profile_status() -> None:
     """현재 모드의 벡터 DB 컬렉션에 저장된 프로필이 있는지 확인."""
     try:
@@ -267,6 +289,9 @@ def render_sidebar() -> str:
         if AUTH_ENABLED:
             st.caption(f"👤 {st.session_state['auth_email']}")
             st.button("로그아웃", key="logout_btn", on_click=st.logout)
+            usage = _usage_caption()
+            if usage:
+                st.caption(usage)
 
         ollama_ok = _ollama_reachable()
         privacy = st.toggle(
@@ -504,7 +529,7 @@ def _star_section() -> None:
     if st.button("✨ STAR로 변환", key="star_btn"):
         if not raw.strip():
             st.warning("경험 메모를 먼저 입력해 주세요.")
-        else:
+        elif _use_quota("star"):
             with st.spinner("STAR 구조로 변환 중…"):
                 try:
                     from agents.star_converter import convert_to_star
@@ -627,7 +652,7 @@ def _job_input_image(company_name: str) -> None:
         type=["png", "jpg", "jpeg", "webp"],
         key="img_upload",
     )
-    if img_file and st.button("🔍 이미지 분석", key="img_btn"):
+    if img_file and st.button("🔍 이미지 분석", key="img_btn") and _use_quota("image"):
         with tempfile.NamedTemporaryFile(
             suffix=Path(img_file.name).suffix, delete=False
         ) as tmp:
@@ -660,7 +685,7 @@ def _job_input_image(company_name: str) -> None:
 def _job_input_search(company_name: str) -> None:
     """검색된 페이지 중 개별 채용공고로 판정된 것만 보여 주고, 사용자가 고른 공고를 입력으로 씀 (#028)."""
     role = st.text_input("직군 키워드", value="백엔드 엔지니어", key="search_role")
-    if st.button("🔎 채용공고 검색", disabled=not company_name, key="search_btn"):
+    if st.button("🔎 채용공고 검색", disabled=not company_name, key="search_btn") and _use_quota("search"):
         with st.spinner(f"'{company_name}' 채용공고 검색 중… (Tavily 검색 → 공고 여부 판정)"):
             try:
                 from search.pipeline import find_job_postings
@@ -728,7 +753,7 @@ def page_analysis() -> None:
                 st.session_state["nav_to"] = "공고 입력"
                 st.rerun()
         with col_go:
-            if st.button("그래도 분석 계속", use_container_width=True):
+            if st.button("그래도 분석 계속", use_container_width=True) and _use_quota("analysis"):
                 st.session_state["non_posting_ok_text"] = posting_text
                 st.session_state["non_posting_blocked_text"] = ""
                 _run_pipeline()
@@ -746,7 +771,7 @@ def page_analysis() -> None:
         with col_r:
             run_btn = st.button("▶ 파이프라인 실행", type="primary", use_container_width=True)
 
-        if run_btn:
+        if run_btn and _use_quota("analysis"):
             _run_pipeline()
             st.rerun()
         return
@@ -1133,7 +1158,7 @@ def page_coverletter() -> None:
     char_limit = st.number_input("글자수 제한 (공백 포함)", min_value=100, max_value=3000,
                                  value=500, step=50, key="cl_limit")
 
-    if st.button("✍️ 답변 작성", type="primary", disabled=not question.strip()):
+    if st.button("✍️ 답변 작성", type="primary", disabled=not question.strip()) and _use_quota("coverletter"):
         with st.spinner("문항 의도 분석 및 답변 작성 중…"):
             try:
                 from agents.coverletter_writer import write_answer
@@ -1214,7 +1239,7 @@ def page_job_recommend() -> None:
             else:
                 run_query = query.strip()
 
-    if run_query is not None:
+    if run_query is not None and _use_quota("recommend"):
         st.session_state["rec_query"] = run_query
         st.session_state["ranked_matches"] = []
         st.session_state["rec_errors"] = []
