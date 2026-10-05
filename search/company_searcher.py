@@ -52,8 +52,8 @@ class CompanySearcher:
         )
         return aggregated
 
-    def search_job_postings(self, company_name: str, role: str = "개발자") -> dict[str, Any]:
-        """특정 회사의 채용공고를 검색합니다."""
+    def search_job_posting_results(self, company_name: str, role: str = "개발자") -> list[dict[str, Any]]:
+        """채용공고 검색 결과를 페이지별로 반환합니다 (URL 중복 제거, 요약 없음)."""
         queries = [
             f"{company_name} {role} 채용 공고 {date.today().year} site:wanted.co.kr OR site:saramin.co.kr",
             f"{company_name} {role} job posting {date.today().year}",
@@ -69,7 +69,11 @@ class CompanySearcher:
             if r.get("url") not in seen_urls:
                 seen_urls.add(r.get("url", ""))
                 unique.append(r)
+        return unique
 
+    def search_job_postings(self, company_name: str, role: str = "개발자") -> dict[str, Any]:
+        """특정 회사의 채용공고를 검색합니다."""
+        unique = self.search_job_posting_results(company_name, role)
         aggregated = self._aggregate(unique, context="job_postings")
         aggregated["summary"] = self._summarize(
             aggregated["combined_text"],

@@ -21,6 +21,60 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+MIN_POSTING_CHARS = 200   # 이보다 짧은 검색 결과는 공고 본문으로 보기 어려움
+MAX_POSTING_CHECKS = 5    # 공고 여부를 LLM 으로 판정할 최대 검색 결과 수
+
+
+def find_job_postings(
+    company_name: str, role: str = "개발자", max_checks: int = MAX_POSTING_CHECKS
+) -> dict[str, Any]:
+    """
+    회사·직군으로 검색한 페이지 중 개별 채용공고로 판정된 것만 반환합니다 (PROJECT_DOCS #028).
+
+    예전 자동 검색은 검색 결과 여러 개(블로그 기사·Q&A 포함)를 합친 텍스트를 공고로 넘겼음.
+    이제는 페이지마다 목록 페이지·짧은 글을 먼저 거르고, job_parser 의 is_job_posting 판정을
+    통과한 페이지만 후보로 돌려줍니다. 입력한 회사의 공고가 앞에 옵니다.
+
+    Returns
+    -------
+    dict
+        postings : [{title, url, raw_text, requirements}]  — 공고로 판정된 페이지
+        checked  : 공고 여부를 판정한 페이지 수
+        found    : 검색된 페이지 수
+    """
+    from agents.job_parser import parse_posting_structured
+    from agents.job_recommender import _is_listing_title, _is_listing_url
+    from search.company_searcher import CompanySearcher
+
+    results = CompanySearcher().search_job_posting_results(company_name, role)
+    candidates = [
+        r for r in results
+        if len((r.get("content") or "").strip()) >= MIN_POSTING_CHARS
+        and not _is_listing_url(r.get("url", ""))
+        and not _is_listing_title(r.get("title", ""))
+    ][:max_checks]
+
+    postings = []
+    for r in candidates:
+        title = r.get("title", "")
+        raw_text = f"{title}\n\n{r['content'].strip()}" if title else r["content"].strip()
+        req = parse_posting_structured(raw_text)
+        if not req.get("is_job_posting"):
+            logger.info("[find_job_postings] 공고 아님 제외: %s", r.get("url", ""))
+            continue
+        postings.append({"title": title, "url": r.get("url", ""), "raw_text": raw_text, "requirements": req})
+
+    # 입력한 회사의 공고를 앞으로 (검색 결과에 다른 회사 공고가 섞이는 경우가 많음)
+    postings.sort(key=lambda p: not _same_company(company_name, p["requirements"].get("company_name", "")))
+    return {"postings": postings, "checked": len(candidates), "found": len(results)}
+
+
+def _same_company(a: str, b: str) -> bool:
+    import re
+    norm = lambda s: re.sub(r"\(주\)|㈜|주식회사|[\W_]+", "", s or "").lower()  # noqa: E731
+    a, b = norm(a), norm(b)
+    return bool(a and b and (a in b or b in a))
+
 
 class JobSearchPipeline:
     """
