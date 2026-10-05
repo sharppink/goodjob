@@ -7,6 +7,12 @@ LangGraph 에이전트, RAG, sLLM 파인튜닝, 전체 로컬 처리(개인정�
 
 기술 선택은 가능한 한 **측정으로 결정**했습니다. 예를 들어 리랭커는 RAGAS로 재 보니 검색 품질을 떨어뜨려서 기본값에서 뺐고, 파인튜닝 모델은 로컬 비교 평가 결과에 맞춰 쓰임새를 정했습니다.
 
+🔗 **Live Demo**: [goodjob-ai.streamlit.app](https://goodjob-ai.streamlit.app) — Google 계정으로 로그인, 계정당 하루 사용 횟수 제한
+
+![GoodJob 시연](docs/demo.gif)
+
+<sub>가상의 샘플 프로필(김데모)로 촬영 — 내 프로필 확인 → 공고 입력 → 분석 & 이력서(노드별 진행 → 적합도 → 이력서) → 지원 현황 보드에서 카드 이동</sub>
+
 ---
 
 ## 주요 기능
@@ -228,13 +234,15 @@ GitHub Actions가 PR과 `main` 푸시마다 pytest와 Docker 빌드·기동·동
 
 ### 5. 클라우드 배포 (Streamlit Community Cloud)
 
-UI를 [Streamlit Community Cloud](https://share.streamlit.io)에 비공개 앱으로 배포해 두었습니다 (소유자·초대한 사람만 접속).
+UI를 [Streamlit Community Cloud](https://share.streamlit.io)에 공개 앱으로 배포해 두었습니다 — https://goodjob-ai.streamlit.app
+(Google 계정이 있으면 누구나 로그인, 계정별·전체 하루 사용량 제한, 개인정보처리방침 `?page=privacy`)
 
 - 설정: Repository `sharppink/goodjob`, Branch `main`, Main file `frontend/app.py`, Python 3.11
 - 패키지: 진입 파일 옆의 [`frontend/requirements.txt`](frontend/requirements.txt)가 루트보다 우선 사용됩니다 (torch 등 학습용 패키지 제외). 루트의 [`packages.txt`](packages.txt)로 한국어 폰트 설치
 - API 키: 앱 Settings → Secrets 에 `OPENAI_API_KEY`, `TAVILY_API_KEY` (TOML)
 - 클라우드에는 Ollama가 없어 개인정보 보호 모드는 자동으로 꺼지고, 공고 상세 수집(Playwright)은 검색 요약으로 대체됩니다.
-- 앱이 재시작되면 등록한 프로필이 초기화됩니다. `agents/` 등 화면 밖 코드를 바꾼 뒤에는 대시보드에서 **Reboot**해야 반영됩니다.
+- 프로필·사용 횟수·지원 현황은 Supabase에 저장되어 재시작해도 유지됩니다 (위 4번 설정).
+  `agents/` 등 화면 밖 코드를 바꾼 뒤에는 대시보드에서 **Reboot**해야 반영됩니다.
 
 ---
 
