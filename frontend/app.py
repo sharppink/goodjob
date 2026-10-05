@@ -138,6 +138,8 @@ _DEFAULTS: dict[str, Any] = {
     "cl_meta": {},
     # 공고 추천
     "rec_query": "",
+    "rec_mode": "profile",          # "profile" = 프로필 기반, "keyword" = 키워드 직접 입력
+    "rec_used_queries": [],
     "rec_running": False,
     "ranked_matches": [],
     "rec_errors": [],
@@ -1121,42 +1123,68 @@ def page_coverletter() -> None:
 
 def page_job_recommend() -> None:
     st.header("🔎 내 프로필에 맞는 공고 추천")
-    st.caption("키워드를 입력하면 AI가 채용공고를 수집·분석하여 적합도 순으로 추천합니다.")
+    st.caption("등록한 프로필을 바탕으로 AI가 채용공고를 수집·분석하여 적합도 순으로 추천합니다.")
 
     if not st.session_state["profile_indexed"]:
         st.warning("👤 프로필을 먼저 등록해 주세요.")
         return
 
-    # ── 검색 입력 ────────────────────────────────────────────────────
-    col_input, col_btn = st.columns([3, 1])
-    with col_input:
-        query = st.text_input(
-            "직무 키워드",
-            value=st.session_state["rec_query"],
-            placeholder="Python 백엔드, AI 엔지니어, 데이터 사이언티스트 …",
-            label_visibility="collapsed",
-        )
-    with col_btn:
-        run_btn = st.button("🔍 공고 탐색", type="primary", use_container_width=True)
+    # ── 검색 방식 선택 ───────────────────────────────────────────────
+    mode_labels = {"profile": "👤 내 프로필로 찾기", "keyword": "⌨️ 키워드 직접 입력"}
+    mode = st.radio(
+        "검색 방식",
+        options=list(mode_labels),
+        format_func=mode_labels.get,
+        index=list(mode_labels).index(st.session_state["rec_mode"]),
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    st.session_state["rec_mode"] = mode
 
-    if run_btn:
-        if not query.strip():
-            st.warning("키워드를 입력하세요.")
-        else:
-            st.session_state["rec_query"] = query
-            st.session_state["ranked_matches"] = []
-            st.session_state["rec_errors"] = []
-            _run_recommender(query)
-            st.rerun()
+    run_query: str | None = None
+    if mode == "profile":
+        st.caption("프로필의 직무·기술·경력을 읽고 검색어를 최대 3개 만들어 공고를 찾습니다.")
+        if st.button("🔍 내 프로필로 공고 탐색", type="primary"):
+            run_query = ""
+    else:
+        col_input, col_btn = st.columns([3, 1])
+        with col_input:
+            query = st.text_input(
+                "직무 키워드",
+                value=st.session_state["rec_query"],
+                placeholder="Python 백엔드, AI 엔지니어, 데이터 사이언티스트 …",
+                label_visibility="collapsed",
+            )
+        with col_btn:
+            run_btn = st.button("🔍 공고 탐색", type="primary", use_container_width=True)
+        if run_btn:
+            if not query.strip():
+                st.warning("키워드를 입력하세요.")
+            else:
+                run_query = query.strip()
+
+    if run_query is not None:
+        st.session_state["rec_query"] = run_query
+        st.session_state["ranked_matches"] = []
+        st.session_state["rec_errors"] = []
+        st.session_state["rec_used_queries"] = []
+        _run_recommender(run_query)
+        st.rerun()
 
     # ── 결과 표시 ────────────────────────────────────────────────────
+    used = st.session_state["rec_used_queries"]
+    if used and not st.session_state["rec_query"]:
+        st.caption("프로필에서 만든 검색어: " + " · ".join(f"`{q}`" for q in used))
+
     matches = st.session_state["ranked_matches"]
     if not matches:
-        if st.session_state["rec_query"]:
-            st.info("결과가 없거나 탐색 중입니다.")
+        if used or st.session_state["rec_errors"]:
+            st.info("조건에 맞는 공고를 찾지 못했습니다. 다시 탐색하거나 키워드를 직접 입력해 보세요.")
+            _render_rec_errors()
         return
 
-    st.success(f"✅ '{st.session_state['rec_query']}' 관련 공고 {len(matches)}개 추천")
+    label = f"'{st.session_state['rec_query']}' 관련" if st.session_state["rec_query"] else "내 프로필에 맞는"
+    st.success(f"✅ {label} 공고 {len(matches)}개 추천")
     st.divider()
 
     for match in matches:
@@ -1236,6 +1264,10 @@ def page_job_recommend() -> None:
 
             st.divider()
 
+    _render_rec_errors()
+
+
+def _render_rec_errors() -> None:
     if st.session_state["rec_errors"]:
         with st.expander("⚠️ 오류"):
             for e in st.session_state["rec_errors"]:
@@ -1243,8 +1275,9 @@ def page_job_recommend() -> None:
 
 
 def _run_recommender(query: str) -> None:
-    """job_recommender_node를 실행하고 결과를 세션에 저장합니다."""
-    with st.spinner(f"'{query}' 공고 탐색 중… (Tavily 검색 + Structured Output 분석)"):
+    """job_recommender_node를 실행하고 결과를 세션에 저장합니다. query 가 비면 프로필 기반."""
+    target = f"'{query}'" if query else "내 프로필에 맞는"
+    with st.spinner(f"{target} 공고 탐색 중… (검색어 생성 → Tavily 검색 → 적합도 분석, 1~3분)"):
         try:
             from agents.job_recommender import job_recommender_node
             mock_state = {
@@ -1254,6 +1287,7 @@ def _run_recommender(query: str) -> None:
             result = job_recommender_node(mock_state)
             st.session_state["ranked_matches"] = result.get("ranked_matches", [])
             st.session_state["rec_errors"]     = result.get("errors", [])
+            st.session_state["rec_used_queries"] = result.get("recommendation_queries", [])
         except Exception as exc:
             st.error(f"추천 오류: {exc}")
             st.exception(exc)
