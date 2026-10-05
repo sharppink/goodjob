@@ -6,6 +6,7 @@ Endpoint for reverse matching: find job postings that fit the stored profile.
 Routes
 ------
 POST /recommend  – Collect postings for a keyword via Tavily, score fit, return ranking.
+                   Without a keyword, search queries are derived from the stored profile.
 """
 
 from __future__ import annotations
@@ -22,11 +23,14 @@ router = APIRouter()
 
 
 class RecommendRequest(BaseModel):
-    query: str = Field(..., description="Search keyword or role (e.g. 'Python 백엔드').")
+    query: str = Field(
+        "", description="Search keyword or role (e.g. 'Python 백엔드'). Empty → derived from the profile."
+    )
 
 
 class RecommendResponse(BaseModel):
     query: str
+    queries: list[str] = Field(default_factory=list, description="Search queries actually used.")
     ranked_matches: list[dict[str, Any]]
     errors: list[str]
 
@@ -69,4 +73,9 @@ async def recommend_jobs(body: RecommendRequest) -> RecommendResponse:
         }
         for m in state.get("ranked_matches") or []
     ]
-    return RecommendResponse(query=body.query, ranked_matches=matches, errors=state.get("errors") or [])
+    return RecommendResponse(
+        query=body.query,
+        queries=state.get("recommendation_queries") or [],
+        ranked_matches=matches,
+        errors=state.get("errors") or [],
+    )

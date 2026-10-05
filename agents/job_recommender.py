@@ -5,6 +5,7 @@ agents/job_recommender.py
 
 흐름
 ----
+0. 키워드가 없으면 저장된 프로필에서 검색어를 뽑음 (suggest_queries_from_profile)
 1. Tavily API로 키워드 기반 공고 다수 수집
 2. 각 공고를 Structured Output(JobRequirements)으로 구조화
 3. RAG로 사용자 관련 경험 검색
@@ -19,6 +20,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from agents.fit_analyzer import LOW_FIT_THRESHOLD
 from agents.state import GoodJobState
 
@@ -27,6 +30,28 @@ logger = logging.getLogger(__name__)
 MAX_CANDIDATES   = 10   # 수집할 최대 공고 수
 MAX_RANKED       = 5    # 반환할 최종 순위 수
 SCORE_THRESHOLD  = LOW_FIT_THRESHOLD  # 이 점수 미만은 결과에서 제외
+MAX_PROFILE_QUERIES = 3     # 프로필에서 뽑을 검색어 수
+PROFILE_TEXT_LIMIT  = 6000  # 검색어 추출 시 LLM 에 넘길 프로필 최대 글자 수
+
+QUERY_SYSTEM_PROMPT = """당신은 IT 채용 검색 전문가입니다.
+지원자 프로필을 읽고, 이 사람에게 맞는 채용공고를 찾기 위한 검색어를 만듭니다.
+
+규칙:
+1. 검색어는 "직무명 + 핵심 기술 1~2개" 형태의 짧은 한국어 키워드입니다. (예: "Python 백엔드 개발자", "LLM 엔지니어 LangChain")
+2. 프로필에 실제로 적힌 직무·기술·경력만 근거로 삼고, 없는 기술을 지어내지 않습니다.
+3. 검색어끼리 겹치지 않게, 지원자가 지원할 만한 서로 다른 방향을 담습니다.
+4. 회사명, 따옴표, 연도는 넣지 않습니다.
+"""
+
+QUERY_USER_TEMPLATE = """아래 지원자 프로필에 맞는 채용공고 검색어를 {n}개 이하로 만드세요.
+
+### 지원자 프로필
+{profile}
+"""
+
+
+class ProfileSearchQueries(BaseModel):
+    queries: list[str] = Field(description="채용공고 검색어 목록 (가장 잘 맞는 것부터)")
 
 
 # ------------------------------------------------------------------ #
@@ -39,10 +64,12 @@ def job_recommender_node(state: GoodJobState) -> GoodJobState:
 
     state 입력
     ----------
-    recommendation_query : 검색 키워드 (예: "Python 백엔드", "AI 엔지니어")
+    recommendation_query : 검색 키워드 (예: "Python 백엔드", "AI 엔지니어").
+                           비어 있으면 저장된 프로필에서 검색어를 뽑아 씁니다.
 
     state 출력
     ----------
+    recommendation_queries : 실제로 검색에 쓴 검색어 목록
     job_candidates  : 수집·구조화된 공고 목록
     ranked_matches  : 적합도 상위 N개 랭킹 결과
     """
@@ -50,7 +77,7 @@ def job_recommender_node(state: GoodJobState) -> GoodJobState:
     state["current_step"] = "job_recommender"
     errors: list[str] = state.get("errors") or []
 
-    query: str = state.get("recommendation_query") or "백엔드 개발자"
+    query: str = (state.get("recommendation_query") or "").strip()
 
     # ── 1. 프로필 벡터 DB 확인 ──────────────────────────────────────
     from rag.vectorstore import VectorStore
@@ -62,8 +89,20 @@ def job_recommender_node(state: GoodJobState) -> GoodJobState:
         state["ranked_matches"] = []
         return state
 
-    # ── 2. 채용공고 수집 ─────────────────────────────────────────────
-    candidates = _collect_postings(query, max_count=MAX_CANDIDATES)
+    # ── 2. 검색어 결정 → 채용공고 수집 ───────────────────────────────
+    if query:
+        queries = [query]
+    else:
+        queries = suggest_queries_from_profile(vs.get_all_documents())
+        if not queries:
+            errors.append("job_recommender: 프로필에서 검색어를 만들지 못했습니다. 키워드를 직접 입력해 보세요.")
+            state["errors"] = errors
+            state["ranked_matches"] = []
+            return state
+    state["recommendation_queries"] = queries
+    logger.info("[job_recommender] 검색어: %s", queries)
+
+    candidates = _collect_postings_multi(queries, max_count=MAX_CANDIDATES)
     if not candidates:
         errors.append("job_recommender: 공고 검색 결과가 없습니다.")
         state["errors"] = errors
@@ -104,9 +143,55 @@ def job_recommender_node(state: GoodJobState) -> GoodJobState:
     return state
 
 
+def suggest_queries_from_profile(
+    documents: list[str], max_queries: int = MAX_PROFILE_QUERIES
+) -> list[str]:
+    """저장된 프로필 청크로 채용공고 검색어를 만듭니다. 실패하면 빈 리스트."""
+    profile = "\n\n".join(d.strip() for d in documents if d and d.strip())[:PROFILE_TEXT_LIMIT]
+    if not profile:
+        return []
+    try:
+        # 개인정보 보호 모드면 로컬 모델이 처리해 프로필이 외부로 나가지 않음
+        from llm.factory import get_chat_client
+        result: ProfileSearchQueries = get_chat_client(fast=True).generate_structured(
+            prompt=QUERY_USER_TEMPLATE.format(n=max_queries, profile=profile),
+            schema=ProfileSearchQueries,
+            system=QUERY_SYSTEM_PROMPT,
+        )
+    except Exception as exc:
+        logger.error("[job_recommender] 프로필 검색어 생성 실패: %s", exc)
+        return []
+
+    queries: list[str] = []
+    for q in result.queries:
+        q = " ".join(q.replace('"', " ").split())
+        if q and q.lower() not in {x.lower() for x in queries}:
+            queries.append(q)
+    return queries[:max_queries]
+
+
 # ------------------------------------------------------------------ #
 # Internal helpers                                                     #
 # ------------------------------------------------------------------ #
+
+def _collect_postings_multi(queries: list[str], max_count: int = MAX_CANDIDATES) -> list[dict[str, Any]]:
+    """검색어마다 공고를 모아 URL 중복을 빼고, 검색어별로 번갈아 담아 max_count 개로 자릅니다."""
+    per_query = [_collect_postings(q, max_count=max_count) for q in queries]
+    seen: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    # 첫 검색어 결과만으로 자리가 다 차지 않도록 라운드로빈으로 섞음
+    for i in range(max((len(p) for p in per_query), default=0)):
+        for postings in per_query:
+            if i >= len(postings):
+                continue
+            item = postings[i]
+            key = item.get("url") or item.get("title", "")
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    return merged[:max_count]
+
 
 def _collect_postings(query: str, max_count: int = MAX_CANDIDATES) -> list[dict[str, Any]]:
     """Tavily API로 채용공고 텍스트를 수집합니다."""

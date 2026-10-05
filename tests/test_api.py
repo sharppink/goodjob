@@ -176,8 +176,24 @@ def test_recommend_maps_ranked_matches(client, monkeypatch):
     assert "requirements" not in match
 
 
+def test_recommend_without_query_uses_profile(client, monkeypatch):
+    import agents.job_recommender
+
+    seen = {}
+
+    def fake_node(state):
+        seen.update(state)
+        return {"recommendation_queries": ["Python 백엔드"], "ranked_matches": [], "errors": []}
+
+    monkeypatch.setattr(agents.job_recommender, "job_recommender_node", fake_node)
+    resp = client.post("/recommend", json={})
+    assert resp.status_code == 200
+    assert seen["recommendation_query"] == ""
+    assert resp.json()["queries"] == ["Python 백엔드"]
+
+
 # ------------------------------------------------------------------ #
-# SessionStore                                                         #
+# SessionStore                                                        #
 # ------------------------------------------------------------------ #
 
 def test_session_store_memory_backend():

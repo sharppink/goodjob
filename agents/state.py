@@ -139,7 +139,10 @@ class GoodJobState(TypedDict, total=False):
     # Job recommendation (populated by job_recommender_node)              #
     # ------------------------------------------------------------------ #
     recommendation_query: Optional[str]
-    """키워드 or 직무명 (예: 'Python 백엔드', 'AI 엔지니어')."""
+    """키워드 or 직무명 (예: 'Python 백엔드', 'AI 엔지니어'). 비어 있으면 프로필에서 검색어를 뽑음."""
+
+    recommendation_queries: Optional[list[str]]
+    """실제로 검색에 쓴 검색어 목록 (직접 입력이면 1개, 프로필 기반이면 최대 3개)."""
 
     job_candidates: Optional[list[dict]]
     """
