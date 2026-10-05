@@ -25,6 +25,7 @@ def pg(monkeypatch):
     pg_store._schema_ready.clear()
     with psycopg.connect(DB_URL, autocommit=True) as conn:
         conn.execute(f"drop table if exists {pg_store.TABLE_NAME}")
+        conn.execute(f"drop table if exists {pg_store.USAGE_TABLE_NAME}")
     yield DB_URL
 
 
@@ -63,10 +64,11 @@ def test_table_has_row_level_security(pg):
 
     VectorStore().count()  # 스키마 생성
     with psycopg.connect(DB_URL) as conn:
-        row = conn.execute(
-            "select relrowsecurity from pg_class where relname = %s", (pg_store.TABLE_NAME,)
-        ).fetchone()
-    assert row == (True,)
+        rows = conn.execute(
+            "select relname, relrowsecurity from pg_class where relname = any(%s) order by relname",
+            ([pg_store.TABLE_NAME, pg_store.USAGE_TABLE_NAME],),
+        ).fetchall()
+    assert rows == [(pg_store.TABLE_NAME, True), (pg_store.USAGE_TABLE_NAME, True)]
 
 
 def test_email_is_not_stored(pg):
@@ -79,3 +81,33 @@ def test_email_is_not_stored(pg):
     with psycopg.connect(DB_URL) as conn:
         dump = str(conn.execute(f"select * from {pg_store.TABLE_NAME}").fetchall())
     assert "secret.person" not in dump
+
+
+def test_usage_limit_persists_in_db(pg, monkeypatch):
+    """사용 횟수가 Supabase 에 저장돼 재시작(메모리 초기화) 후에도 유지되고, 한도에서 멈춤."""
+    import psycopg
+    from config.settings import settings
+    from llm import usage_limit
+    from rag import pg_store
+    from rag.vectorstore import set_current_user
+
+    monkeypatch.setattr(settings, "USAGE_DAILY_LIMITS", "analysis=2")
+    monkeypatch.setattr(settings, "USAGE_GLOBAL_DAILY_LIMIT", 100)
+    monkeypatch.setattr(settings, "USAGE_EXEMPT_EMAILS", "")
+    set_current_user("quota@example.com")
+    try:
+        usage_limit.consume("analysis")
+        usage_limit.reset_memory()  # DB 에 저장되므로 메모리와 무관
+        assert usage_limit.remaining_all() == {"analysis": 1}
+        usage_limit.consume("analysis")
+        with pytest.raises(usage_limit.UsageLimitExceeded):
+            usage_limit.consume("analysis")
+    finally:
+        set_current_user(None)
+
+    with psycopg.connect(DB_URL) as conn:
+        rows = conn.execute(
+            f"select user_key, action, count from {pg_store.USAGE_TABLE_NAME} order by action"
+        ).fetchall()
+    assert [(a, c) for _, a, c in rows] == [("*all*", 2), ("analysis", 2)]
+    assert "quota" not in str(rows), "이메일 원문은 저장하지 않음"

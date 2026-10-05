@@ -187,6 +187,26 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------ #
+    # 사용량 제한 — 로그인한 계정에만 적용 (로그인 없는 로컬 실행은 제한 없음)  #
+    # ------------------------------------------------------------------ #
+    USAGE_DAILY_LIMITS: str = Field(
+        default="analysis=5,recommend=2,search=5,image=5,coverletter=5,star=10",
+        description=(
+            "계정당 하루(한국 시간) 기능별 실행 횟수 한도. '기능=횟수' 를 쉼표로 구분. "
+            "목록에 없는 기능은 제한 없음, 0 이면 사용 불가."
+        ),
+    )
+    USAGE_GLOBAL_DAILY_LIMIT: int = Field(
+        default=100,
+        ge=0,
+        description="모든 계정을 합친 하루 실행 횟수 한도 (OpenAI·Tavily 비용 상한). 0 이면 제한 없음.",
+    )
+    USAGE_EXEMPT_EMAILS: str = Field(
+        default="",
+        description="사용량 제한을 받지 않는 이메일 목록 (쉼표 구분, 예: 앱 소유자).",
+    )
+
+    # ------------------------------------------------------------------ #
     # LLM routing                                                          #
     # ------------------------------------------------------------------ #
     LLM_ROUTER_THRESHOLD: float = Field(
@@ -229,6 +249,19 @@ class Settings(BaseSettings):
     @property
     def allowed_emails(self) -> set[str]:
         return {e.strip().lower() for e in self.ALLOWED_EMAILS.split(",") if e.strip()}
+
+    @property
+    def usage_exempt_emails(self) -> set[str]:
+        return {e.strip().lower() for e in self.USAGE_EXEMPT_EMAILS.split(",") if e.strip()}
+
+    @property
+    def usage_daily_limits(self) -> dict[str, int]:
+        limits: dict[str, int] = {}
+        for item in self.USAGE_DAILY_LIMITS.split(","):
+            name, _, value = item.partition("=")
+            if name.strip() and value.strip().isdigit():
+                limits[name.strip()] = int(value)
+        return limits
 
     @property
     def has_langsmith_key(self) -> bool:
